@@ -1,0 +1,21 @@
+{
+  "name": "binance",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "binance-api-node": "^0.12.9",
+    "chalk": "^4.1.2",
+    "clui": "^0.3.6",
+    "dotenv": "^16.4.7",
+    "drawille": "^2.0.2",
+    "limiter": "^2.1.0",
+    "sqlite3": "^5.1.7",
+    "terminal-kit": "^3.1.1"
+  }
+}
