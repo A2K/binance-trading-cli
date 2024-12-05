@@ -16,6 +16,8 @@
     "drawille": "^2.0.2",
     "limiter": "^2.1.0",
     "sqlite3": "^5.1.7",
-    "terminal-kit": "^3.1.1"
+    "terminal-kit": "^3.1.1",
+    "memory-cache": "^0.2.0"
   }
 }
+
