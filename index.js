@@ -37,6 +37,27 @@ const Settings = (() => {
     }
 })();
 
+const thresholds = (() => {
+    try {
+        // create thresholds.json file with your own thresholds
+        return require('./thresholds.json');
+    } catch (e) {
+        return {
+            buy: {},
+            sell: {}
+        };
+    }
+})();
+
+const SCHEMA = `CREATE TABLE IF NOT EXISTS transactions (
+                    time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    symbol TEXT,
+                    amount REAL,
+                    price REAL,
+                    total REAL,
+                    fee REAL
+                )`;
+
 const binance = Binance({
     apiKey: process.env.BINANCE_API_KEY,
     apiSecret: process.env.BINANCE_API_SECRET
@@ -50,33 +71,26 @@ const binance = Binance({
  * @param {number} fee
  * @returns Promise<Trade>
  */
-async function save(symbol, amount, price, total, fee) {
+async function save(symbol, amount, price, total, fee, time) {
     balances[symbol] -= amount;
     return new Promise((resolve, reject) => {
         db.serialize(() => {
             try {
-                db.run(`CREATE TABLE IF NOT EXISTS transations (
-                     time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                     symbol TEXT,
-                     amount REAL,
-                     price REAL,
-                     total REAL,
-                     fee REAL
-                )`);
+                db.run(SCHEMA);
 
-                const stmt = db.prepare("INSERT INTO transations(symbol, amount, price, total, fee) VALUES (?, ?, ?, ?, ?)");
-                stmt.run(symbol, amount, price, total, fee);
+                const stmt = db.prepare("INSERT INTO transactions(time, symbol, amount, price, total, fee) VALUES (?, ?, ?, ?, ?, ?)");
+                stmt.run(time.toISOString(), symbol, amount, price, total, fee);
                 stmt.finalize((err) => {
                     if (err) {
                         reject(err);
                         return;
                     }
-                    cache.del(symbol.replace(/USDT$/, ''));
-                    cache.del(total);
-                    resolve(new Trade(symbol, amount, price, total, fee));
+                    cache.del(`${symbol.replace(/USDT$/, '')}_${new Date().getUTCDay()}`);
+                    cache.del(`total_${new Date().getUTCDay()}`);
+                    resolve(new Trade(symbol, amount, price, total, fee, time));
                     setTimeout(() => {
-                        cache.del(symbol.replace(/USDT$/, ''));
-                        cache.del(total);
+                        cache.del(`${symbol.replace(/USDT$/, '')}_${new Date().getUTCDay()}`);
+                        cache.del(`total_${new Date().getUTCDay()}`);
                     }, 100);
                 });
 
@@ -97,10 +111,10 @@ async function readProfits(symbol) {
     return new Promise((resolve, reject) => {
         db.serialize(() => {
             if (symbol) {
-                db.each(`SELECT SUM(total) as total FROM transations ` +
+                db.each(`SELECT SUM(total) as total FROM transactions ` +
                         `WHERE symbol = '${symbol}USDT' ` +
                         `AND time >= DATETIME('now', 'start of day')`, (err, row) => {
-                // db.each(`SELECT SUM(total) as total FROM transations WHERE symbol = '${symbol}USDT'`, (err, row) => {
+                // db.each(`SELECT SUM(total) as total FROM transactions WHERE symbol = '${symbol}USDT'`, (err, row) => {
                     if (err) {
                         reject(err);
                         return;
@@ -110,9 +124,9 @@ async function readProfits(symbol) {
                     resolve(result);
                 });
             } else {
-                db.each(`SELECT SUM(total) as total FROM transations ` +
+                db.each(`SELECT SUM(total) as total FROM transactions ` +
                         `WHERE time >= DATETIME('now', 'start of day')`, (err, row) => {
-                    // db.each(`SELECT SUM(total) as total FROM transations`, (err, row) => {
+                    // db.each(`SELECT SUM(total) as total FROM transactions`, (err, row) => {
                     if (err) {
                         reject(err);
                         return;
@@ -126,15 +140,15 @@ async function readProfits(symbol) {
     });
 }
 
-async function readTransactionLog(maxItems = process.stdout.rows - Object.keys(currencies).length - 2) {
+async function readTransactionLog(maxItems = process.stdout.rows - Object.keys(currencies).length - 1) {
     const trades = await new Promise((resolve, reject) => {
         db.serialize(() => {
-            db.all(`SELECT * FROM transations ORDER BY time DESC LIMIT ${maxItems}`, (err, rows) => {
+            db.all(`SELECT * FROM transactions ORDER BY time DESC LIMIT ${maxItems}`, (err, rows) => {
                 if (err) {
                     reject(err);
                     return;
                 }
-                resolve(rows.map(row => new Trade(row.symbol, row.amount, row.price, row.total, row.fee)));
+                resolve(rows.map(row => new Trade(row.symbol, row.amount, row.price, row.total, row.fee, new Date(row.time))));
             });
         });
     });
@@ -152,7 +166,8 @@ class Trade {
      * @param {number} total
      * @param {number} commission
      */
-    constructor(symbol, quantity, price, total, commission) {
+    constructor(symbol, quantity, price, total, commission, time = new Date()) {
+        this.time = time || new Date();
         this.symbol = symbol;
         this.quantity = quantity;
         this.price = price;
@@ -167,13 +182,14 @@ class Trade {
         const quantity = this.quantity;
         const tradeTotal = this.total;
         return `${quantity >= 0 ? '🪙' : '💵'}` +
-        ` ${new Date().toLocaleDateString("uk-UA", {
+        ` ${this.time.toLocaleDateString("uk-UA", {
             year: 'numeric',
             month: 'numeric',
             day: '2-digit',
             hour: '2-digit',
             minute: '2-digit',
-            second: '2-digit'
+            second: '2-digit',
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
         })} ` +
         `${(quantity >= 0 ? chalk.redBright : chalk.greenBright)((quantity > 0 ? '-' : '+') + Math.abs(tradeTotal).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
         `${(quantity < 0 ? chalk.red : chalk.green)((quantity >= 0 ? '+' : '-') + formatFloat(Math.abs(quantity)))} ${chalk.bold(this.symbol.replace(/USDT$/, ''))} at ${chalk.yellow(formatFloat(this.price, 8))} ` +
@@ -181,18 +197,61 @@ class Trade {
     }
 }
 
+const enabledTrades = (() => {
+    try {
+        return require('./enableTrade.json');
+    } catch (e) {
+        return {};
+    }
+})()
+
 class Symbol
 {
-    constructor(data)
+    constructor(symbol, data)
     {
         Object.assign(this, data);
+        this.symbol = symbol;
         this.startPrice = this.price;
-        this.buyThreshold = Settings.buyThreshold;
-        this.sellThreshold = Settings.sellThreshold;
+    }
+
+    get buyThreshold() {
+        return thresholds.buy[this.symbol] ? thresholds.buy[this.symbol] : Settings.buyThreshold
+    }
+
+    get sellThreshold() {
+        return thresholds.sell[this.symbol] ? thresholds.sell[this.symbol] : Settings.sellThreshold;
+    }
+
+    set buyThreshold(value) {
+        thresholds.buy[this.symbol] = value;
+        fs.writeFileSync('./thresholds.json', JSON.stringify(thresholds, null, 4));
+    }
+
+    set sellThreshold(value) {
+        thresholds.sell[this.symbol] = value;
+        fs.writeFileSync('./thresholds.json', JSON.stringify(thresholds, null, 4));
+    }
+
+    get enableTrade() {
+        return enabledTrades[this.symbol] ? true : false;
+    }
+
+    set enableTrade(value) {
+        enabledTrades[this.symbol] = value;
+        fs.writeFileSync('./enableTrade.json', JSON.stringify(enabledTrades, null, 4));
     }
 
     get price() {
         return ((parseFloat(this.bestAsk) || 0) + (parseFloat(this.bestBid) || 0)) / 2;
+    }
+
+    get maxDailyLoss() {
+        return this.symbol in maxDailyLosses ? maxDailyLosses[this.symbol] : Settings.maxDailyLoss;
+    }
+
+    set maxDailyLoss(value) {
+        maxDailyLosses[this.symbol] = value;
+        fs.writeFileSync('./maxDailyLosses.json', JSON.stringify(maxDailyLosses, null, 4));
     }
 
     /**
@@ -204,11 +263,10 @@ class Symbol
 }
 
 async function trade(symbol, price, quantity, forceTrade = false) {
-    //console.log(quantity > 0 ? '🪙 BUY' : '💵 SELL', Math.abs(quantity), symbol, 'at', price);
     if (quantity >= 0)
     {
         const todayProfits = await readProfits(symbol);
-        if ((todayProfits - quantity * price) < -Settings.maxDailyLoss && !forceTrade)
+        if ((todayProfits - quantity * price) < -symbols[symbol].maxDailyLoss && !forceTrade)
         {
             // addLogMessage(`🚫 REFUSED TO BUY ${Math.abs(quantity)} ${symbol} at ${price} due to daily loss limit: ${chalk.redBright(Math.abs(formatFloat(todayProfits)))} > ${chalk.red(Settings.maxDailyLoss)}`);
             return;
@@ -220,13 +278,12 @@ async function trade(symbol, price, quantity, forceTrade = false) {
             const completedOrder = await binance.order({
                 symbol: `${symbol}USDT`,
                 side: quantity >= 0 ? 'BUY' : 'SELL',
-                quantity: Math.abs(quantity),
+                quantity: Math.abs(quantity).toFixed(8),
                 //type: "LIMIT",
                 type: "MARKET",
                 //price: price,
                 //timeInForce: 'IOC'
             });
-            //console.log(completedOrder)
 
             if (completedOrder.status === 'EXPIRED') {
                 //console.log('🚫 FAILED TO', quantity > 0 ? '🪙 BUY' : '💵 SELL', Math.abs(quantity), symbol,'at', price);
@@ -255,16 +312,16 @@ async function trade(symbol, price, quantity, forceTrade = false) {
     const finalSaleValueUsd = -Math.sign(quantity) * tradeTotal - commission;
 
     // write transaction to database
-    addLogMessage(await save(`${symbol}USDT`, quantity, tradePrice, finalSaleValueUsd, commission));
+    addLogMessage(await save(`${symbol}USDT`, quantity, tradePrice, finalSaleValueUsd, commission, new Date(completedOrder.transactTime)));
 }
 
 function printTrades() {
-    while (logMessages.length > process.stdout.rows - Object.keys(currencies).length - 2) {
+    while (logMessages.length > process.stdout.rows - Object.keys(currencies).length - 1) {
         logMessages.shift();
     }
 
     for (var i = 0; i < logMessages.length; i++) {
-        process.stdout.cursorTo(0, Object.keys(currencies).length + (logMessages.length - i) + 1);
+        process.stdout.cursorTo(0, Object.keys(currencies).length + (logMessages.length - i));
         process.stdout.clearLine(0);
         process.stdout.write(logMessages[i]);
         process.stdout.clearLine(1);
@@ -273,16 +330,22 @@ function printTrades() {
 
 async function printSymbol(symbol) {
 
+    if (!(symbol in symbols)) {
+        return;
+    }
+
     const timestamp = new Date().toLocaleDateString("uk-UA", {
         year: 'numeric',
         month: 'numeric',
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit'
+        second: '2-digit',
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
     });
 
     const makeVelocitySymbol = (velocity) => {
+        velocity = parseFloat(velocity) * 10000;
         if (Math.abs(velocity) < 0.1) {
             return chalk.white(' ⡇');
         }
@@ -399,7 +462,7 @@ async function printSymbol(symbol) {
 }
 
 function formatFloat(number, n = 2) {
-    return parseFloat(number.toFixed(n));
+    return parseFloat(parseFloat(number).toFixed(n));
 }
 
 const balances = {};
@@ -419,7 +482,7 @@ const lines = {}
 const logMessages = [];
 const addLogMessage = (msg) => {
     logMessages.push(msg.toString());
-    while (logMessages.length > process.stdout.rows - Object.keys(currencies).length - 2) {
+    while (logMessages.length > process.stdout.rows - Object.keys(currencies).length - 1) {
         logMessages.shift();
     }
     printTrades();
@@ -464,7 +527,10 @@ let selectedRow = -1;
             if (selectedRow >= 0)
             {
                 process.stdout.cursorTo(0, selectedRow);
-                process.stdout.write(symbols[Object.keys(currencies).sort()[selectedRow]].statusLine + '');
+                if (symbols[Object.keys(currencies).sort()[selectedRow]])
+                {
+                    process.stdout.write(symbols[Object.keys(currencies).sort()[selectedRow]].statusLine + '');
+                }
                 process.stdout.clearLine(1);
             }
 
@@ -533,14 +599,11 @@ let selectedRow = -1;
             }
 
         } else if (code.length === 1) {
-            if (code[0] === 27) {
+            if (code[0] === 27) { // esc
                 if (selectedRow >= 0) {
-                    process.stdout.cursorTo(0, selectedRow);
-                    process.stdout.write(lines[Object.keys(currencies).sort()[selectedRow]]);
-                    process.stdout.clearLine(1);
+                    selectedRow = -1;
                 }
-                selectedRow = -1;
-            } else if (code[0] === 13) {
+            } else if (code[0] === 13) { // enter
                 if (selectedRow >= 0) {
                     const symbol = Object.keys(currencies).sort()[selectedRow];
                     symbols[symbol].forceTrade = true;
@@ -600,6 +663,7 @@ let selectedRow = -1;
                 if (selectedRow >= 0) {
                     const symbol = Object.keys(currencies).sort()[selectedRow];
                     symbols[symbol].buyThreshold = Math.max(0, symbols[symbol].buyThreshold - (symbols[symbol].buyThreshold > 10 ? 5 : 1));
+
                     // addLogMessage(`BUY THRESHOLD FOR ${symbol} SET TO ${symbols[symbol].buyThreshold}`);
                     printSymbol(symbol);
                 }
@@ -609,6 +673,16 @@ let selectedRow = -1;
                 if (selectedRow >= 0) {
                     const symbol = Object.keys(currencies).sort()[selectedRow];
                     symbols[symbol].buyThreshold = Math.min(currencies[symbol], symbols[symbol].buyThreshold + (symbols[symbol].buyThreshold >= 10 ? 5 : 1));
+                    printSymbol(symbol);
+                }
+            }
+            else if (code[0] === 8 || code[0] === 127) // backspace
+            {
+                if (selectedRow >= 0) {
+                    const symbol = Object.keys(currencies).sort()[selectedRow];
+                    if (symbol in balances) {
+                        currencies[symbol] = balances[symbol] * symbols[symbol].price;
+                    }
                     printSymbol(symbol);
                 }
             }
@@ -631,64 +705,16 @@ let selectedRow = -1;
 }
 
 const printStats = async (symbol, deltaPrice) =>{
-    // not actual braile
-    // ⡆⡄⡀ ⠇⠃⠁
-    // ⠃⠂ ⠄⡄
-    // ⡀⠠⡀⢀⠄⠂
-    // ⡇⡆⡄⡀
-    // ⡇⠇⠃⠁
-    // ⢸
-
-    // ⠈⠘⠸⢸⢸
-    // ⣠
-    // ⣰
     if (deltaPrice) {
         symbols[symbol].deltaPrice = deltaPrice;
     } else {
-        deltaPrice = symbols[symbol].deltaPrice;
+        deltaPrice = symbol in symbols ? symbols[symbol].deltaPrice : 0;
     }
-    const velocity = (velocities[symbol] || 0) * 10000;
-
-    const deltaSum = Object.keys(currencies).reduce((acc, delta) => acc + deltas[delta], 0);
-
-    const relativeDeltaPrice = deltaPrice / symbols[symbol].price;
-    const symbolProfit = await readProfits(symbol);
-
-    const isSelected = Object.keys(currencies).sort().indexOf(symbol) === selectedRow;
-
-    const total = Object.keys(currencies).reduce((acc, symbol) => acc + currencies[symbol], 0);
-    const max = Object.keys(currencies).reduce((acc, symbol) => Math.max(acc, currencies[symbol] / total), 0);
-    const fraction = currencies[symbol] / total / max;
-    let str = `${(Math.round(currencies[symbol]) + '').padEnd(10)}`;
-    const m = isSelected ? 2 : 1;
-    str = chalk.bgRgb(10*m,50*m,120*m)(chalk.rgb(210, 210, 210)(str.substring(0, Math.round(fraction * str.length)))) +
-          chalk.bgRgb(0*m,0*m,25*m)(str.substring(Math.round(fraction * str.length)));
-
-    const timestamp = new Date().toLocaleDateString("uk-UA", {
-        year: 'numeric',
-        month: 'numeric',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-    });
-    // symbols[symbol].statusLine = `📈 ${timestamp} ${symbol.padEnd(8)} ${velocitySymbol}` +
-
-    //     `${relativePriceColor(symbols[symbol].price.toPrecision(6).padEnd(14))}` +
-
-    //     str +
-
-    //     ` ${(deltaUsd < 0 ? (-deltaUsd > symbols[symbol].sellThreshold ? chalk.greenBright : chalk.green) :
-    //     (deltaUsd > symbols[symbol].buyThreshold ? chalk.redBright : chalk.red))(colorizeDeltaUsd(symbol, -deltaUsd))} ` +
-    //     await colorizeSymbolProfit(symbol, symbolProfit) +
-    //     ` ${symbols[symbol].enableTrade ? '🟢' : '🔴'} ` +
-    //     ` ${parseFloat(symbols[symbol].buyThreshold).toFixed(2)} ` +
-    //     ` ${parseFloat(symbols[symbol].sellThreshold).toFixed(2)}`;
-        // (symbolProfit >= 0 ? chalk.green : chalk.red)(((symbolProfit > 0 ? '+' : '') + formatFloat(symbolProfit)).padEnd(10));
 
     printSymbol(symbol);
 
     const profits = await readProfits();
+    const deltaSum = Object.keys(currencies).reduce((acc, delta) => acc + deltas[delta], 0);
     const deltaSumStr = (deltaSum < 0 ? '+' : '') + formatFloat(-deltaSum);
     const profitsStr = (profits >= 0 ? '+' : '') + formatFloat(profits);
     const deltaSumColor = deltaSum <= 0 ? chalk.green : chalk.red;
@@ -698,11 +724,10 @@ const printStats = async (symbol, deltaPrice) =>{
     process.stdout.write(`${enableTrade ? '🟢' : '🔴'}${enableBuy ? '🟢' : '🔴'} ±${('' + steps[step]).padEnd(4)}`);
     process.stdout.write(`${Math.round(balances.USDT)}`.padStart(36));
     process.stdout.write(` ${chalk.yellow('⇄')} `);
-    process.stdout.write(`${Object.values(currencies).reduce((acc, currency) => acc + currency, 0)}`);
+    process.stdout.write(`${`${Math.round(Object.values(currencies).reduce((acc, currency) => acc + currency, 0))}`.padEnd(11)}`);
 
     process.stdout.cursorTo('                                                            '.length, Object.keys(currencies).length);
     process.stdout.write(`${deltaSumColor(deltaSumStr.padEnd(11))}${profitsColor(profitsStr.padEnd(11))}`);
-    // process.stdout.write(`${Math.round(balances.USDT)}`.padEnd(10));
     process.stdout.cursorTo(86, Object.keys(currencies).length);
     process.stdout.write(`${chalk.red('↓')}${chalk.whiteBright('-')}${chalk.green('↑')}${chalk.whiteBright('=')} `);
     process.stdout.write(`${chalk.red('↓')}${chalk.whiteBright('[')}${chalk.green('↑')}${chalk.whiteBright(']')}`);
@@ -715,6 +740,7 @@ async function tick(time, symbol)
     {
         return;
     }
+
 
     const duration = time - (lastTickTime[symbol] || 0);
     lastTickTime[symbol] = time;
@@ -732,18 +758,26 @@ async function tick(time, symbol)
 
     const delta = targetAmount - usd;
 
+
     velocities[symbol] = (velocities[symbol] || (currentPrice - lastPrice[symbol]) / currentPrice) * Math.max(0.0, 1.0 - Settings.interpSpeed * duration)
      + (currentPrice - lastPrice[symbol]) / currentPrice * Math.min(1.0, Settings.interpSpeed * duration);
 
     const deltaPrice = currentPrice - lastPrice[symbol];
     lastPrice[symbol] = currentPrice;
 
-    const quantity = Math.round(Math.round(Math.round(delta / currentPrice) * currentPrice) / currentPrice);
+    let quantity = delta / currentPrice;
+    quantity = Math.round(quantity / symbols[symbol].stepSize) * symbols[symbol].stepSize;
     const deltaUsd = quantity * currentPrice;
     deltas[symbol] = deltaUsd;
 
+    // addLogMessage(JSON.stringify(symbols[symbol]));
+    // quantity = symbols[symbol]
     printStats(symbol, deltaPrice);
 
+    // if (symbol.startsWith('BTC'))
+    //     {
+    //         addLogMessage(JSON.stringify(symbol) + ' ' + symbols[symbol].price + ' ' + balances[symbol] + ' ' + currencies[symbol] + ' ' + deltaPrice + " usd " + deltaUsd);
+    //     }
     if (enableTrade) {
         const velocity = velocities[symbol];
         const forceTrade = symbols[symbol].forceTrade;
@@ -768,7 +802,8 @@ async function tick(time, symbol)
                     deltas[symbol] = 0;
                 }
             } catch (e) {
-                console.log('trade failed:', symbol, currentPrice, quantity, e);
+                str = 'trade failed: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ' + e;
+                addLogMessage(str);
             }
         }
     }
@@ -776,14 +811,49 @@ async function tick(time, symbol)
 
 process.stdout.write('\u001B[?25l'); // clear screen
 
+async function updateStepSize(symbol) {
+    const info1 = await binance.exchangeInfo({ symbol: `${symbol}USDT`});
+    for (const s of info1.symbols)
+    {
+        if (!s.symbol.endsWith('USDT')) {
+            continue;
+        }
+        const symbol = s.symbol.replace(/USDT$/, '');
+        if (!(symbol in currencies)) {
+            continue;
+        }
+        const lotSizeFilter = s.filters.find(f => f.filterType === 'LOT_SIZE');
+        const stepSize = parseFloat(lotSizeFilter.stepSize);
+        if (symbol in symbols) {
+            symbols[symbol].stepSize = stepSize;
+        }
+    }
+}
+
 // get current ballance
 binance.accountInfo().then(async info => {
+    await new Promise((resolve, reject) => {
+        db.serialize(() => {
+            try {
+                db.run(SCHEMA, (err) => { if (err) { reject(err) } else { resolve() } });
+
+            } catch (e) {
+                reject(e);
+            }
+        })
+    });
+
     process.stdout.cursorTo(0, 0);
     process.stdout.clearScreenDown();
+    const allSymbols = info.balances
+        .filter(b => parseFloat(b.free) + parseFloat(b.locked) > 0)
+        .map(b => b.asset)
+        .filter(a=>a !== 'USDT');
+
     for (const balance of info.balances)
     {
         const value = parseFloat(balance.free) + parseFloat(balance.locked);
-        if (value >= 0)
+        if (value > 0)
         {
             balances[balance.asset] = parseFloat(balance.free) + parseFloat(balance.locked);
             if (balance.asset in currencies && balance.asset in symbols) {
@@ -803,22 +873,38 @@ binance.accountInfo().then(async info => {
 
     startTotal = await readProfits();
 
-    addLogMessage(`❓ Press '?' for help`);
-    setTimeout(() => {
-        logMessages.shift();
-        process.stdout.cursorTo(0, Object.keys(currencies).length + logMessages.length + 2);
-        process.stdout.clearLine(1);
-     }, 2000);
+    // addLogMessage(`❓ Press '?' for help`);
+    // setTimeout(() => {
+    //     logMessages.shift();
+    //     process.stdout.cursorTo(0, Object.keys(currencies).length + logMessages.length + 2);
+    //     process.stdout.clearLine(1);
+    //  }, 2000);
 
     readTransactionLog();
 
-    binance.ws.ticker([...Object.keys(currencies).sort(), 'BNB'].map(k => `${k}USDT`), async priceInfo => {
+
+    binance.ws.ticker([...allSymbols.sort()].map(k => `${k}USDT`), async priceInfo => {
+        // console.log(priceInfo);
+        // return;
         const symbol = priceInfo.symbol.replace(/USDT$/, '');
+        if (symbol === 'USDC') return;
+
         if (!(symbol in symbols)) {
-            symbols[symbol] = new Symbol(priceInfo);
+            symbols[symbol] = new Symbol(symbol, priceInfo);
+            updateStepSize(symbol);
+            // symbols[symbol].buyThreshold = thresholds.buy[symbol] ? thresholds.buy[symbol] : Settings.buyThreshold;
+            // symbols[symbol].sellThreshold = thresholds.sell[symbol] ? thresholds.sell[symbol] : Settings.sellThreshold;
+
         } else {
             symbols[symbol].update(priceInfo);
         }
+
+        if (!(symbol in currencies)) {
+                // addLogMessage(`🚀 ${symbol} delta balance ${balances[symbol]} price ${symbols[symbol].price}, ${balances[symbol] * symbols[symbol].price}`)
+            currencies[symbol] = balances[symbol] * symbols[symbol].price;
+            printTrades();
+        }
+
         if (symbol in currencies) {
             await tick(parseFloat(priceInfo.eventTime), symbol);
         }
