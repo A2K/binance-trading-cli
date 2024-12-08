@@ -14,10 +14,11 @@
     "clui": "^0.3.6",
     "dotenv": "^16.4.7",
     "drawille": "^2.0.2",
+    "fuse.js": "^7.0.0",
     "limiter": "^2.1.0",
+    "memory-cache": "^0.2.0",
     "sqlite3": "^5.1.7",
     "terminal-kit": "^3.1.1",
-    "memory-cache": "^0.2.0"
+    "trading-indicator": "^2.0.4"
   }
 }
-

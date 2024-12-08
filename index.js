@@ -6,6 +6,7 @@ const chalk = require('chalk');
 const fs = require('fs');
 const cache = require('memory-cache');
 require('dotenv').config();
+const Fuse = require('fuse.js')
 
 const currencies = (() => {
     try {
@@ -62,6 +63,83 @@ const binance = Binance({
     apiKey: process.env.BINANCE_API_KEY,
     apiSecret: process.env.BINANCE_API_SECRET
 });
+
+async function avgPrice(symbol) {
+    const cacheKey = `avgPrice_${symbol}USDT`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const price = await new Promise((resolve, reject) => {
+        binance.avgPrice({ symbol: `${symbol}USDT` }).then(avgPrice => {
+            resolve(parseFloat(avgPrice.price));
+        })});
+
+    cache.put(cacheKey, price, 60 * 1000);
+    return price;
+}
+
+function timestampStr() {
+    return new Date().toLocaleDateString("uk-UA", {
+        year: 'numeric',
+        month: 'numeric',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    })
+}
+
+function colorizeChangedPart(symbol, prev, next, padding = 14) {
+    let fullDigits = Math.ceil(Math.log10(Math.ceil(next)));
+    if (fullDigits <= 0) {
+        fullDigits = 1;
+    }
+
+    const precision = padding - 1;
+    prev = parseFloat(prev).toPrecision(precision).substring(0, precision).padEnd(padding - 1, '0');
+    next = parseFloat(next).toPrecision(precision).substring(0, precision).padEnd(padding - 1, '0');
+    // addLogMessage(symbol, prev, next)
+    var diffIndex = -1;
+    for(let i = 0; i < Math.min(prev.length, next.length); i++) {
+        if (prev[i] !== next[i]) {
+            diffIndex = i;
+            break;
+        }
+    }
+
+    // next = next.substring(0, Math.min(next.length, Math.max(diffIndex < Math.min(prev.length, next.length) ? diffIndex + 1 : 0, next.lastIndexOf(/[^0]/))));
+    next = next.substring(0, Math.max(next.replace(/[^.]0+$/, '').length, diffIndex + 1));
+    // next = next.replace(/[^.]0+$/, '')
+
+    const clamp = (value, min = 0.0, max = 1.0) => Math.min(max, Math.max(min, value));
+    const lerp = (from, to, alpha) => Math.round(from * (1.0 - clamp(alpha)) + to * clamp(alpha));
+    /**
+     * @param {import('chalk').Chalk} from
+     */
+    const lerpColor = (from, to, alpha) => [0, 1, 2].map(i => lerp(from[i], to[i], clamp(alpha)));
+
+    let v = parseFloat(velocities[symbol]) * 10000.0 * 0.25;
+    let colorIdle = [185, 185, 185];
+    let color = v === 0 ? colorIdle
+    : v > 0 ? lerpColor(colorIdle, [0, 255, 0], v) : lerpColor(colorIdle, [255, 0, 0], -v);
+
+    const c = v === 0 ? chalk.white : chalk.rgb(color[0], color[1], color[2]);
+                // lerp(0, 255, -v), lerp(0, 255, v), lerp(255, 0, Math.abs(v)));
+
+
+    // addLogMessage(symbol, lerp(0, 255, -v), lerp(0.0, 255, v), lerp(255, 0.0, Math.abs(v)))
+    if (prev === next || diffIndex === -1) {
+        return c(next) + ' '.repeat(Math.max(0, padding - next.length));
+    }
+
+    return c(next.substring(0, diffIndex)) +
+        (prev < next ? chalk.greenBright(next[diffIndex]) : chalk.redBright(next[diffIndex])) +
+        (prev < next ? chalk.green(next.substring(diffIndex + 1)) :
+                       chalk.red(next.substring(diffIndex + 1))) + ' '.repeat(Math.max(0, padding - next.length));
+}
 
 /**
  * @param {string} symbol
@@ -192,8 +270,8 @@ class Trade {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
         })} ` +
         `${(quantity >= 0 ? chalk.redBright : chalk.greenBright)((quantity > 0 ? '-' : '+') + Math.abs(tradeTotal).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
-        `${(quantity < 0 ? chalk.red : chalk.green)((quantity >= 0 ? '+' : '-') + formatFloat(Math.abs(quantity)))} ${chalk.bold(this.symbol.replace(/USDT$/, ''))} at ${chalk.yellow(formatFloat(this.price, 8))} ` +
-        `(fee: ${chalk.yellowBright(formatFloat(this.commission, 4))})`
+        `${(quantity < 0 ? chalk.red : chalk.green)((quantity >= 0 ? '+' : '-') + formatFloat(Math.abs(quantity)))} ${chalk.bold(this.symbol.replace(/USDT$/, ''))} at ${chalk.yellowBright(formatFloat(this.price, 8))} ` +
+        `(fee: ${chalk.yellow(formatFloat(this.commission, 4))} ${chalk.whiteBright('USDT')})`;
     }
 }
 
@@ -204,6 +282,8 @@ const enabledTrades = (() => {
         return {};
     }
 })()
+
+const maxDailyLosses = {};
 
 class Symbol
 {
@@ -263,22 +343,12 @@ class Symbol
 }
 
 async function trade(symbol, price, quantity, forceTrade = false) {
-    if (quantity >= 0)
-    {
-        const todayProfits = await readProfits(symbol);
-        if ((todayProfits - quantity * price) < -symbols[symbol].maxDailyLoss && !forceTrade)
-        {
-            // addLogMessage(`🚫 REFUSED TO BUY ${Math.abs(quantity)} ${symbol} at ${price} due to daily loss limit: ${chalk.redBright(Math.abs(formatFloat(todayProfits)))} > ${chalk.red(Settings.maxDailyLoss)}`);
-            return;
-        }
-    }
-
     const doTrade = async () => {
         for(let i = 0; i < 3; i++) {
             const completedOrder = await binance.order({
                 symbol: `${symbol}USDT`,
                 side: quantity >= 0 ? 'BUY' : 'SELL',
-                quantity: Math.abs(quantity).toFixed(8),
+                quantity: Math.abs(quantity).toFixed(Math.max(0, Math.log10(1.0 / symbols[symbol].stepSize))),
                 //type: "LIMIT",
                 type: "MARKET",
                 //price: price,
@@ -296,7 +366,7 @@ async function trade(symbol, price, quantity, forceTrade = false) {
 
     const completedOrder = await doTrade();
     if (!completedOrder || completedOrder.status === 'EXPIRED') {
-        addLogMessage(`🚫 FAILED TO ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${Math.abs(quantity)} ${symbol} at ${price}`);
+        addLogMessage(`🚫 ${timestampStr()} FAILED TO ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${Math.abs(quantity)} ${symbol} at ${price}`);
         return;
     }
 
@@ -417,11 +487,11 @@ async function printSymbol(symbol) {
 
     const symbolProfit = await readProfits(symbol);
 
-    const relativePriceColor = chalk.rgb(relativeDeltaPrice >= 0 ?
-        Math.max(180, Math.min(255, Math.round(255 * Math.min(1.0, relativeDeltaPrice * 1000)) || 0)) :
+    const relativePriceColor = chalk.rgb(relativeDeltaPrice < 0 ?
+        Math.max(180, Math.min(255, Math.round(255 * Math.min(1.0, relativeDeltaPrice * 500)) || 0)) :
         0,
-        relativeDeltaPrice >= 0 ? 0 :
-        Math.max(180, Math.min(255, Math.round(255 * Math.min(1.0, -relativeDeltaPrice * 1000)) || 0)),
+        relativeDeltaPrice < 0 ? 0 :
+        Math.max(180, Math.min(255, Math.round(255 * Math.min(1.0, -relativeDeltaPrice * 500)) || 0)),
         0);
 
     const isSelected = Object.keys(currencies).sort().indexOf(symbol) === selectedRow;
@@ -429,24 +499,26 @@ async function printSymbol(symbol) {
     const max = Object.keys(currencies).reduce((acc, symbol) => Math.max(acc, currencies[symbol] / total), 0);
     const fraction = currencies[symbol] / total / max;
 
-    let str = `${(Math.round(currencies[symbol]) + '').padEnd(10)}`;
+    let str = `${(Math.round(currencies[symbol]) + '').padEnd(20)}`;
     const m = isSelected ? 2 : 1;
     str = chalk.bgRgb(10*m,50*m,120*m)(chalk.rgb(210, 210, 210)(str.substring(0, Math.round(fraction * str.length)))) +
             chalk.bgRgb(0*m,0*m,25*m)(str.substring(Math.round(fraction * str.length)));
 
     const deltaUsd = deltas[symbol] || 0;
+    const symbolAvgPrice = await avgPrice(symbol);
     symbols[symbol].statusLine = `📈 ${timestamp} ${symbol.padEnd(8)} ${makeVelocitySymbol((velocities[symbol] || 0))}` +
 
-        `${relativePriceColor((symbols[symbol].price || 0).toPrecision(6).padEnd(14))}` +
+        // `${relativePriceColor((symbols[symbol].price || 0).toPrecision(6).padEnd(14))}` +
+        `${colorizeChangedPart(symbol, symbols[symbol].price - deltaPrice, symbols[symbol].price, 14)}` +
 
         str +
 
         ` ${(deltaUsd < 0 ? (-deltaUsd > symbols[symbol].sellThreshold ? chalk.greenBright : chalk.green) :
         (deltaUsd > symbols[symbol].buyThreshold ? chalk.redBright : chalk.red))(colorizeDeltaUsd(symbol, -deltaUsd))} ` +
-        await colorizeSymbolProfit(symbol, symbolProfit) +
-        ` ${symbols[symbol].enableTrade ? '🟢' : '🔴'} ` +
-        `  ${parseFloat(symbols[symbol].buyThreshold).toFixed(0)}  ` +
-        ` ${parseFloat(symbols[symbol].sellThreshold).toFixed(0)}`;
+        await colorizeSymbolProfit(symbol, symbolProfit) + ' ' +
+        chalk.bgRgb(isSelected ? 100 : 50, 25, 25)(`${symbols[symbol].enableTrade ? '🟢' : '🟥'} ` +
+        ` -${parseFloat(symbols[symbol].buyThreshold).toFixed(0).padEnd(4)}` +
+        ` ${parseFloat(symbols[symbol].sellThreshold).toFixed(0).padEnd(4)}`);
 
     const keys = Object.keys(currencies).sort();
     process.stdout.cursorTo(0, keys.indexOf(symbol));
@@ -458,13 +530,67 @@ async function printSymbol(symbol) {
     {
         process.stdout.write(symbols[symbol].statusLine);
     }
+    // process.stdout.clearLine(1);
+
+    if (Object.keys(currencies).sort().indexOf(symbol) !== selectedRow)
+    {
+        return;
+    }
+
+    const candlesX = 106;
+    const candlesWidth = 80;
+    const { candles, rows } = await require('./candles.js').renderCandles(symbol, '1m', candlesWidth, 20);
+    const minValue = candles.min;
+    const maxValue = candles.max;
+    rows.forEach((row, i) => {
+        process.stdout.cursorTo(candlesX, i);
+        process.stdout.write(chalk.bgRgb(25, 25, 25)(row));
+        process.stdout.clearLine(1);
+    });
+    process.stdout.cursorTo(candlesX, 0);
+    process.stdout.write(chalk.bgRgb(25, 25, 25)(`${maxValue}`));
+    //process.stdout.clearLine(1);
+    process.stdout.cursorTo(candlesX, rows.length - 1);
+    process.stdout.write(chalk.bgRgb(25, 25, 25)(`${minValue}`));
+    //process.stdout.clearLine(1);
+    const currentRow = Math.round((1.0 - (symbols[symbol].price - minValue) / (maxValue - minValue)) * rows.length);
+    process.stdout.cursorTo(candlesX + candlesWidth, currentRow);
+    process.stdout.write(`${minValue}`);
     process.stdout.clearLine(1);
 }
+
 
 function formatFloat(number, n = 2) {
     return parseFloat(parseFloat(number).toFixed(n));
 }
 
+var lookupStr = '';
+var lookupClearTimeout = null;
+function addLookupChar(charStr) {
+    lookupStr += charStr;
+    if (lookupClearTimeout) {
+        clearTimeout(lookupClearTimeout);
+    }
+    setTimeout(() => {
+        lookupStr = '';
+    }, 1000);
+
+    const curFuzzySearch = new Fuse(Object.keys(currencies).sort());
+    const fuzzyResult = curFuzzySearch.search(lookupStr);
+    if (fuzzyResult) {
+        const bestMatch = fuzzyResult[0];
+        if (bestMatch)
+        {
+            selectedRow = bestMatch.refIndex;
+            printSymbol(Object.keys(currencies).sort()[bestMatch.refIndex]);
+        }
+    }
+
+    // Object.keys(currencies).sort()
+    // process.stdout.cursorTo(0, Object.keys(currencies).length);
+    // process.stdout.write(lookupStr);
+    // process.stdout.clearLine(1);
+}
 const balances = {};
 
 /**
@@ -480,8 +606,8 @@ let lastPrice = {}
 const lines = {}
 
 const logMessages = [];
-const addLogMessage = (msg) => {
-    logMessages.push(msg.toString());
+const addLogMessage = (...msgs) => {
+    logMessages.push(msgs.map(msg => msg.toString()).join(' '));
     while (logMessages.length > process.stdout.rows - Object.keys(currencies).length - 1) {
         logMessages.shift();
     }
@@ -591,17 +717,41 @@ let selectedRow = -1;
             }
             else if (code[2] === 49) // home
             {
-                enableTrade = !enableTrade;
+                selectedRow = 0;
             }
             else if (code[2] === 52) // end
             {
+                selectedRow = Object.keys(currencies).length - 1;
+            }
+            else if (code[2] === 91) // Fn keys
+            {
+                if (code[3] === 65) // F1
+                {
+                    enableTrade = !enableTrade;
+                }
+                else if (code[3] === 66) // F2
+                {
+                    enableBuy = !enableBuy;
+                }
+            }
+        }
+        else if (code.length >= 3 && code[0] === 27 && code[1] === 79)
+        {
+            if (code[2] === 80) // F1
+            {
+                enableTrade = !enableTrade;
+            }
+            else if (code[2] === 81) // F2
+            {
                 enableBuy = !enableBuy;
             }
-
-        } else if (code.length === 1) {
+        }
+        else if (code.length === 1) {
             if (code[0] === 27) { // esc
-                if (selectedRow >= 0) {
-                    selectedRow = -1;
+                const oldRow = selectedRow;
+                selectedRow = -1;
+                if (oldRow >= 0) {
+                    printSymbol(Object.keys(currencies).sort()[oldRow]);
                 }
             } else if (code[0] === 13) { // enter
                 if (selectedRow >= 0) {
@@ -613,6 +763,14 @@ let selectedRow = -1;
             }
             else if (key === 'q') {
                 process.exit();
+            }
+            else if (key === '1') {
+                Settings.interpSpeed *= 2;
+                addLogMessage(`INTERPOLATION SPEED SET TO ${Settings.interpSpeed}`);
+            }
+            else if (key === '2') {
+                Settings.interpSpeed /= 2;
+                addLogMessage(`INTERPOLATION SPEED SET TO ${Settings.interpSpeed}`);
             }
             else if (code[0] === 9) // tab
             {
@@ -644,7 +802,7 @@ let selectedRow = -1;
             {
                 if (selectedRow >= 0) {
                     const symbol = Object.keys(currencies).sort()[selectedRow];
-                    symbols[symbol].sellThreshold = Math.max(0, symbols[symbol].sellThreshold - (symbols[symbol].sellThreshold > 10 ? 5 : 1));
+                    symbols[symbol].sellThreshold = Math.max(symbols[symbol].minNotional, symbols[symbol].sellThreshold - (symbols[symbol].sellThreshold > 10 ? 5 : 1));
                     // addLogMessage(`SELL THRESHOLD FOR ${symbol} SET TO ${symbols[symbol].sellThreshold}`);
                     printSymbol(symbol);
                 }
@@ -662,7 +820,7 @@ let selectedRow = -1;
             {
                 if (selectedRow >= 0) {
                     const symbol = Object.keys(currencies).sort()[selectedRow];
-                    symbols[symbol].buyThreshold = Math.max(0, symbols[symbol].buyThreshold - (symbols[symbol].buyThreshold > 10 ? 5 : 1));
+                    symbols[symbol].buyThreshold = Math.max(symbols[symbol].minNotional, symbols[symbol].buyThreshold - (symbols[symbol].buyThreshold > 10 ? 5 : 1));
 
                     // addLogMessage(`BUY THRESHOLD FOR ${symbol} SET TO ${symbols[symbol].buyThreshold}`);
                     printSymbol(symbol);
@@ -685,6 +843,9 @@ let selectedRow = -1;
                     }
                     printSymbol(symbol);
                 }
+            }
+            else if (code[0] > 'A'.charCodeAt(0) && code[0] <= 'z'.charCodeAt(0)) {
+                addLookupChar(String.fromCharCode(code[0]));
             }
         }
 
@@ -721,16 +882,22 @@ const printStats = async (symbol, deltaPrice) =>{
     const profitsColor = profits >= 0 ? chalk.green : chalk.red;
     process.stdout.cursorTo(0, Object.keys(currencies).length);
 
-    process.stdout.write(`${enableTrade ? '🟢' : '🔴'}${enableBuy ? '🟢' : '🔴'} ±${('' + steps[step]).padEnd(4)}`);
-    process.stdout.write(`${Math.round(balances.USDT)}`.padStart(36));
+    process.stdout.write(`📋 ${chalk.whiteBright('F1')}${enableTrade ? '🟢' : '🟥'}💵`);
+    process.stdout.write(` ${chalk.whiteBright('F2')}${enableBuy ? '🟢' : '🟥'}🪙`);
+    process.stdout.cursorTo('                       '.length, Object.keys(currencies).length);
+    process.stdout.write(`±${('' + steps[step]).padEnd(4)}`);
+
+    process.stdout.cursorTo('                             '.length, Object.keys(currencies).length);
+    process.stdout.write(`${Math.round(balances.USDT)}`.padStart(16));
     process.stdout.write(` ${chalk.yellow('⇄')} `);
     process.stdout.write(`${`${Math.round(Object.values(currencies).reduce((acc, currency) => acc + currency, 0))}`.padEnd(11)}`);
 
-    process.stdout.cursorTo('                                                            '.length, Object.keys(currencies).length);
+    process.stdout.cursorTo('                                                           '.length, Object.keys(currencies).length);
     process.stdout.write(`${deltaSumColor(deltaSumStr.padEnd(11))}${profitsColor(profitsStr.padEnd(11))}`);
-    process.stdout.cursorTo(86, Object.keys(currencies).length);
-    process.stdout.write(`${chalk.red('↓')}${chalk.whiteBright('-')}${chalk.green('↑')}${chalk.whiteBright('=')} `);
-    process.stdout.write(`${chalk.red('↓')}${chalk.whiteBright('[')}${chalk.green('↑')}${chalk.whiteBright(']')}`);
+    process.stdout.cursorTo(81, Object.keys(currencies).length);
+    process.stdout.write(chalk.bgRgb(50, 25, 25)(`    ` +
+    `${chalk.red('↓')}${chalk.whiteBright('-')}${chalk.green('↑')}${chalk.whiteBright('=')} ` +
+    `${chalk.red('↓')}${chalk.whiteBright('[')}${chalk.green('↑')}${chalk.whiteBright(']')} `));
     process.stdout.clearLine(1);
 }
 
@@ -788,18 +955,48 @@ async function tick(time, symbol)
             try {
                 if ('BNB' in symbols)
                 {
-                    if (process.argv.includes('--dry-run'))
+                    if (quantity > 0)
                     {
-                        addLogMessage(
-                            `🚀 ${symbol} delta ${delta} USDT ` +
-                            `target ${targetAmount} USDT ` +
-                            `min ${-(targetAmount * 0.00125)} ` +
-                            `max ${(targetAmount * 0.00625)}`
-                        );
-                        return;
+                        const todayProfits = await readProfits(symbol);
+                        if ((todayProfits - quantity * symbols[symbol].price) < -symbols[symbol].maxDailyLoss && !forceTrade)
+                        {
+                            quantity = Math.max(0, symbols[symbol].maxDailyLoss + todayProfits) / symbols[symbol].price;
+                            quantity = Math.round(quantity / symbols[symbol].stepSize) * symbols[symbol].stepSize;
+                        }
                     }
-                    await trade(symbol, currentPrice, quantity, forceTrade);
-                    deltas[symbol] = 0;
+
+                    if (Math.abs(quantity * symbols[symbol].price) > symbols[symbol].minNotional
+                        && Math.abs(quantity) > symbols[symbol].minQty) {
+
+                        if (process.argv.includes('--dry-run'))
+                        {
+                            addLogMessage(
+                                `🚀 ${quantity} ${symbol} ` +
+                                ` -> ${(quantity * symbols[symbol].price).toFixed(2)} USDT ` +
+                                `min ${-(targetAmount * 0.00125)} ` +
+                                `max ${(targetAmount * 0.00625)}`
+                            );
+                            return;
+                        }
+
+                        await trade(symbol, currentPrice, quantity, forceTrade);
+                        deltas[symbol] = 0;
+                    }
+                    else if (forceTrade) {
+                        if (Math.abs(quantity * symbols[symbol].price) < symbols[symbol].minNotional)
+                        {
+                            addLogMessage(`🚫 ${timestampStr()} CAN'T BUY ${chalk.yellowBright(Math.abs(quantity).toPrecision(6))} ` +
+                                `${chalk.whiteBright(symbol)} at ${chalk.whiteBright(currentPrice.toPrecision(6))} ` +
+                                `for ${chalk.yellowBright(Math.abs(quantity * currentPrice).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
+                                `because ${chalk.bold('total')} (${Math.abs(quantity * symbols[symbol].price).toFixed(2)} ${chalk.whiteBright('USDT')}) ` +
+                                `is less than ${chalk.whiteBright(symbols[symbol].minNotional.toFixed(2))} ${chalk.whiteBright('USDT')} (${chalk.bold('minNotional')})`);
+                        } else {
+                            addLogMessage(`🚫 ${timestampStr()} CAN'T BUY ${Math.abs(quantity)} ${symbol} at ${currentPrice} ` +
+                                `for ${chalk.yellowBright(Math.abs(quantity * currentPrice).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
+                                `because ${chalk.bold('quantity')} (${Math.abs(quantity).toPrecision(6)} ${chalk.whiteBright(symbol)}) ` +
+                                `is less than ${chalk.whiteBright(symbols[symbol].minNotional.toPrecision(6))} ${chalk.whiteBright(symbol)} (${chalk.bold('minQty')})`);
+                        }
+                    }
                 }
             } catch (e) {
                 str = 'trade failed: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ' + e;
@@ -824,8 +1021,19 @@ async function updateStepSize(symbol) {
         }
         const lotSizeFilter = s.filters.find(f => f.filterType === 'LOT_SIZE');
         const stepSize = parseFloat(lotSizeFilter.stepSize);
+        const minQty = parseFloat(lotSizeFilter.minQty);
         if (symbol in symbols) {
             symbols[symbol].stepSize = stepSize;
+            symbols[symbol].minQty = minQty;
+        }
+
+        const minNotionalFilter = s.filters.find(f => f.filterType === 'NOTIONAL');
+        // addLogMessage(`🚀 ${symbol} minNotional ${JSON.stringify(minNotionalFilter)}`);
+        if (minNotionalFilter) {
+            const minNotional = parseFloat(minNotionalFilter.minNotional);
+            if (symbol in symbols) {
+                symbols[symbol].minNotional = minNotional;
+            }
         }
     }
 }
