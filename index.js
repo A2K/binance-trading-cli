@@ -7,6 +7,7 @@ const fs = require('fs');
 const cache = require('memory-cache');
 require('dotenv').config();
 const Fuse = require('fuse.js')
+const candles = require('./candles.js');
 
 const currencies = (() => {
     try {
@@ -59,26 +60,18 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS transactions (
                     fee REAL
                 )`;
 
+const candleScales = [ '1s', '1m', '1h', '1d' ]
+var candleScale = 1;
+var candlesHeight = -1;
+/**
+ * @type {import('./candles.js').Candle[]}
+ */
+var candleData = [];
+
 const binance = Binance({
     apiKey: process.env.BINANCE_API_KEY,
     apiSecret: process.env.BINANCE_API_SECRET
 });
-
-async function avgPrice(symbol) {
-    const cacheKey = `avgPrice_${symbol}USDT`;
-    const cached = cache.get(cacheKey);
-    if (cached) {
-        return cached;
-    }
-
-    const price = await new Promise((resolve, reject) => {
-        binance.avgPrice({ symbol: `${symbol}USDT` }).then(avgPrice => {
-            resolve(parseFloat(avgPrice.price));
-        })});
-
-    cache.put(cacheKey, price, 60 * 1000);
-    return price;
-}
 
 function timestampStr() {
     return new Date().toLocaleDateString("uk-UA", {
@@ -101,7 +94,6 @@ function colorizeChangedPart(symbol, prev, next, padding = 14) {
     const precision = padding - 1;
     prev = parseFloat(prev).toPrecision(precision).substring(0, precision).padEnd(padding - 1, '0');
     next = parseFloat(next).toPrecision(precision).substring(0, precision).padEnd(padding - 1, '0');
-    // addLogMessage(symbol, prev, next)
     var diffIndex = -1;
     for(let i = 0; i < Math.min(prev.length, next.length); i++) {
         if (prev[i] !== next[i]) {
@@ -110,27 +102,19 @@ function colorizeChangedPart(symbol, prev, next, padding = 14) {
         }
     }
 
-    // next = next.substring(0, Math.min(next.length, Math.max(diffIndex < Math.min(prev.length, next.length) ? diffIndex + 1 : 0, next.lastIndexOf(/[^0]/))));
     next = next.substring(0, Math.max(next.replace(/[^.]0+$/, '').length, diffIndex + 1));
-    // next = next.replace(/[^.]0+$/, '')
 
     const clamp = (value, min = 0.0, max = 1.0) => Math.min(max, Math.max(min, value));
     const lerp = (from, to, alpha) => Math.round(from * (1.0 - clamp(alpha)) + to * clamp(alpha));
-    /**
-     * @param {import('chalk').Chalk} from
-     */
     const lerpColor = (from, to, alpha) => [0, 1, 2].map(i => lerp(from[i], to[i], clamp(alpha)));
 
     let v = parseFloat(velocities[symbol]) * 10000.0 * 0.25;
     let colorIdle = [185, 185, 185];
     let color = v === 0 ? colorIdle
-    : v > 0 ? lerpColor(colorIdle, [0, 255, 0], v) : lerpColor(colorIdle, [255, 0, 0], -v);
+        : (v > 0 ? lerpColor(colorIdle, [0, 255, 0], v) : lerpColor(colorIdle, [255, 0, 0], -v));
 
     const c = v === 0 ? chalk.white : chalk.rgb(color[0], color[1], color[2]);
-                // lerp(0, 255, -v), lerp(0, 255, v), lerp(255, 0, Math.abs(v)));
 
-
-    // addLogMessage(symbol, lerp(0, 255, -v), lerp(0.0, 255, v), lerp(255, 0.0, Math.abs(v)))
     if (prev === next || diffIndex === -1) {
         return c(next) + ' '.repeat(Math.max(0, padding - next.length));
     }
@@ -147,7 +131,7 @@ function colorizeChangedPart(symbol, prev, next, padding = 14) {
  * @param {number} price
  * @param {number} total
  * @param {number} fee
- * @returns Promise<Trade>
+ * @returns {Promise<Trade>}
  */
 async function save(symbol, amount, price, total, fee, time) {
     balances[symbol] -= amount;
@@ -271,7 +255,7 @@ class Trade {
         })} ` +
         `${(quantity >= 0 ? chalk.redBright : chalk.greenBright)((quantity > 0 ? '-' : '+') + Math.abs(tradeTotal).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
         `${(quantity < 0 ? chalk.red : chalk.green)((quantity >= 0 ? '+' : '-') + formatFloat(Math.abs(quantity)))} ${chalk.bold(this.symbol.replace(/USDT$/, ''))} at ${chalk.yellowBright(formatFloat(this.price, 8))} ` +
-        `(fee: ${chalk.yellow(formatFloat(this.commission, 4))} ${chalk.whiteBright('USDT')})`;
+        chalk.rgb(125, 125, 125)(`(fee: ${chalk.rgb(150, 125, 50)(formatFloat(this.commission, 4))} ${chalk.rgb(150, 150, 150)('USDT')})`);
     }
 }
 
@@ -505,7 +489,6 @@ async function printSymbol(symbol) {
             chalk.bgRgb(0*m,0*m,25*m)(str.substring(Math.round(fraction * str.length)));
 
     const deltaUsd = deltas[symbol] || 0;
-    const symbolAvgPrice = await avgPrice(symbol);
     symbols[symbol].statusLine = `📈 ${timestamp} ${symbol.padEnd(8)} ${makeVelocitySymbol((velocities[symbol] || 0))}` +
 
         // `${relativePriceColor((symbols[symbol].price || 0).toPrecision(6).padEnd(14))}` +
@@ -530,7 +513,10 @@ async function printSymbol(symbol) {
     {
         process.stdout.write(symbols[symbol].statusLine);
     }
-    // process.stdout.clearLine(1);
+    if (selectedRow < 0 || Object.keys(currencies).sort().indexOf(symbol) > candlesHeight)
+    {
+        process.stdout.clearLine(1);
+    }
 
     if (Object.keys(currencies).sort().indexOf(symbol) !== selectedRow)
     {
@@ -538,10 +524,23 @@ async function printSymbol(symbol) {
     }
 
     const candlesX = 106;
-    const candlesWidth = 80;
-    const { candles, rows } = await require('./candles.js').renderCandles(symbol, '1m', candlesWidth, 20);
-    const minValue = candles.min;
-    const maxValue = candles.max;
+    const candlesWidth = process.stdout.columns - candlesX - 1;
+    candlesHeight = Math.round(20 / 80 * candlesWidth);
+
+    if (candleData.length === 0 ||
+        (candleScale === 0 ||
+        (candleScale === 1 && new Date(candleData[candleData.length - 1].time.open).getMinutes() !== new Date().getMinutes()) ||
+        (candleScale === 2 && new Date(candleData[candleData.length - 1].time.open).getHours() !== new Date().getHours()) ||
+        (candleScale === 3 && new Date(candleData[candleData.length - 1].time.open).getDay() !== new Date().getDay())))
+    {
+        addLogMessage(`🔄 ${timestampStr()} Loading candles for ${symbol}...`);
+        candleData = await candles.getCandles(symbol, candleScales[candleScale], candlesWidth);
+    }
+
+    const rows = candles.renderCandles(candleData, candlesHeight);
+    // const rows = await candles.getAndRenderCandles(symbol, candleScales[candleScale], candlesWidth, candlesHeight);
+    const minValue = rows.min;
+    const maxValue = rows.max;
     rows.forEach((row, i) => {
         process.stdout.cursorTo(candlesX, i);
         process.stdout.write(chalk.bgRgb(25, 25, 25)(row));
@@ -552,11 +551,12 @@ async function printSymbol(symbol) {
     //process.stdout.clearLine(1);
     process.stdout.cursorTo(candlesX, rows.length - 1);
     process.stdout.write(chalk.bgRgb(25, 25, 25)(`${minValue}`));
-    //process.stdout.clearLine(1);
-    const currentRow = Math.round((1.0 - (symbols[symbol].price - minValue) / (maxValue - minValue)) * rows.length);
-    process.stdout.cursorTo(candlesX + candlesWidth, currentRow);
-    process.stdout.write(`${minValue}`);
-    process.stdout.clearLine(1);
+    // process.stdout.clearLine(1);
+    // const currentRow = Math.round((1.0 - (symbols[symbol].price - minValue) / (maxValue - minValue)) * rows.length);
+    // addLogMessage(currentRow);
+    // process.stdout.cursorTo(candlesX + candlesWidth, currentRow);
+    // process.stdout.write(`${minValue}`);
+    // process.stdout.clearLine(1);
 }
 
 
@@ -733,6 +733,16 @@ let selectedRow = -1;
                 {
                     enableBuy = !enableBuy;
                 }
+                else if (code[3] === 67) // F3
+                {
+                    candleScale = Math.min(candleScales.length - 1, candleScale + 1);
+                    candleData = [];
+                }
+                else if (code[3] === 68) // F4
+                {
+                    candleScale = Math.max(0, candleScale - 1);
+                    candleData = [];
+                }
             }
         }
         else if (code.length >= 3 && code[0] === 27 && code[1] === 79)
@@ -854,6 +864,7 @@ let selectedRow = -1;
         }
         if (lastSelectedRow >= 0 && lastSelectedRow != selectedRow)
         {
+            candleData = [];
             printSymbol(Object.keys(currencies).sort()[lastSelectedRow]);
         }
 
@@ -915,6 +926,11 @@ async function tick(time, symbol)
     if (Math.abs(duration) < 100 /*ms*/) {
         // already called this frame
         return;
+    }
+
+    const isSelected = Object.keys(currencies).sort().indexOf(symbol) === selectedRow;
+    if (isSelected && candleData.length) {
+        candleData[candleData.length - 1].update(time, symbols[symbol].price);
     }
 
     const currentPrice = symbols[symbol].price;
