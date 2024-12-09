@@ -1,5 +1,5 @@
 ### What is this?
-Terminal interface for spot trading on Binance.
+Terminal (command line) interface for spot trading on Binance.
 
 Intended to run inside `screen` on persistent server somewhere close to Binance.
 ### How to use
