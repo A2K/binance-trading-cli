@@ -8,6 +8,7 @@ const cache = require('memory-cache');
 require('dotenv').config();
 const Fuse = require('fuse.js')
 const candles = require('./candles.js');
+const Indicators = require('./indicators.js').Indicators;
 
 const currencies = (() => {
     try {
@@ -60,7 +61,14 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS transactions (
                     fee REAL
                 )`;
 
-const candleScales = [ '1s', '1m', '1h', '1d' ]
+const clamp = (value, min = 0.0, max = 1.0) => Math.min(max, Math.max(min, value));
+const lerp = (from, to, alpha) => Math.round(from * (1.0 - clamp(alpha)) + to * clamp(alpha));
+const lerpColor = (from, to, alpha) => [0, 1, 2].map(i => lerp(from[i], to[i], clamp(alpha)));
+const lerpChalk = (from, to, alpha) => chalk.rgb(...lerpColor(from, to, alpha));
+chalk.lerp = (from, to, alpha) => chalk.rgb(...lerpColor(from, to, alpha));
+chalk.bgLerp = (from, to, alpha) => chalk.bgRgb(...lerpColor(from, to, alpha));
+
+const candleScales = [ '1s', '1m', '1h', '4h', '1d', '1w', '1M' ]
 var candleScale = 1;
 var candlesHeight = -1;
 /**
@@ -102,13 +110,9 @@ function colorizeChangedPart(symbol, prev, next, padding = 14) {
         }
     }
 
-    next = next.substring(0, Math.max(next.replace(/[^.]0+$/, '').length, diffIndex + 1));
+    next = next.substring(0, Math.max(next.replace(/(\.\d+)(?<!0)0+/, '$1').length, diffIndex + 1));
 
-    const clamp = (value, min = 0.0, max = 1.0) => Math.min(max, Math.max(min, value));
-    const lerp = (from, to, alpha) => Math.round(from * (1.0 - clamp(alpha)) + to * clamp(alpha));
-    const lerpColor = (from, to, alpha) => [0, 1, 2].map(i => lerp(from[i], to[i], clamp(alpha)));
-
-    let v = parseFloat(velocities[symbol]) * 10000.0 * 0.25;
+    let v = parseFloat(velocities[symbol] || 0) * 10000.0 * 0.25;
     let colorIdle = [185, 185, 185];
     let color = v === 0 ? colorIdle
         : (v > 0 ? lerpColor(colorIdle, [0, 255, 0], v) : lerpColor(colorIdle, [255, 0, 0], -v));
@@ -276,6 +280,7 @@ class Symbol
         Object.assign(this, data);
         this.symbol = symbol;
         this.startPrice = this.price;
+        this.indicators = new Indicators();
     }
 
     get buyThreshold() {
@@ -323,6 +328,32 @@ class Symbol
      */
     update(data) {
         Object.assign(this, data);
+    }
+
+    async updateIndicators() {
+        const ranges = [{
+            interval: '1m',
+            range: 60
+        }, {
+            interval: '1h',
+            range: 24
+        }, {
+            interval: '1d',
+            range: 7
+        }, {
+            interval: '1d',
+            range: 30
+        }];
+        const run = async (method) => this[method + 's'] =
+            await Promise.all(ranges.map(r => {
+                 return this.indicators[method](this.symbol.replace(/USDT$/,''), r.interval, r.range) }));
+        // console.log(await run('SMA'));
+        try {
+            await run('SMA');
+            await Promise.all(['EMA', 'RSI', 'StochasticRSI'].map(run));
+        } catch (e) {
+            console.error(e);
+        }
     }
 }
 
@@ -491,7 +522,6 @@ async function printSymbol(symbol) {
     const deltaUsd = deltas[symbol] || 0;
     symbols[symbol].statusLine = `📈 ${timestamp} ${symbol.padEnd(8)} ${makeVelocitySymbol((velocities[symbol] || 0))}` +
 
-        // `${relativePriceColor((symbols[symbol].price || 0).toPrecision(6).padEnd(14))}` +
         `${colorizeChangedPart(symbol, symbols[symbol].price - deltaPrice, symbols[symbol].price, 14)}` +
 
         str +
@@ -513,7 +543,7 @@ async function printSymbol(symbol) {
     {
         process.stdout.write(symbols[symbol].statusLine);
     }
-    if (selectedRow < 0 || Object.keys(currencies).sort().indexOf(symbol) > candlesHeight)
+    if (selectedRow < 0 || Object.keys(currencies).sort().indexOf(symbol) > candlesHeight + 10)
     {
         process.stdout.clearLine(1);
     }
@@ -533,7 +563,6 @@ async function printSymbol(symbol) {
         (candleScale === 2 && new Date(candleData[candleData.length - 1].time.open).getHours() !== new Date().getHours()) ||
         (candleScale === 3 && new Date(candleData[candleData.length - 1].time.open).getDay() !== new Date().getDay())))
     {
-        addLogMessage(`🔄 ${timestampStr()} Loading candles for ${symbol}...`);
         candleData = await candles.getCandles(symbol, candleScales[candleScale], candlesWidth);
     }
 
@@ -551,12 +580,100 @@ async function printSymbol(symbol) {
     //process.stdout.clearLine(1);
     process.stdout.cursorTo(candlesX, rows.length - 1);
     process.stdout.write(chalk.bgRgb(25, 25, 25)(`${minValue}`));
+
+    process.stdout.cursorTo(candlesX + candlesWidth - 100, rows.length);
+    process.stdout.write(`F3⮜ ${candleScales[candleScale]} ⮞F4`.padStart(100).replace('F3', chalk.whiteBright('F3')).replace('F4', chalk.whiteBright('F4')).replace(/⮜ (.*) ⮞/, '⮜ '+ chalk.bgWhite(chalk.black('$1')) + ' ⮞'));
     // process.stdout.clearLine(1);
     // const currentRow = Math.round((1.0 - (symbols[symbol].price - minValue) / (maxValue - minValue)) * rows.length);
     // addLogMessage(currentRow);
     // process.stdout.cursorTo(candlesX + candlesWidth, currentRow);
     // process.stdout.write(`${minValue}`);
     // process.stdout.clearLine(1);
+
+    // process.stdout.cursorTo(106, candlesHeight);
+    process.stdout.clearLine(1);
+
+    if (isSelected && symbols[symbol].SMAs) {
+        process.stdout.cursorTo(106, candlesHeight + 1);
+        process.stdout.write(`     SMA ${symbols[symbol].SMAs.map(s => {
+            if (isNaN(s)) return '';
+            let diff = (s - symbols[symbol].price) / symbols[symbol].price * 100;
+            diff = Math.min(1.0, Math.max(-1.0, diff));
+            return (diff > 0 ? chalk.bgLerp([0, 0, 0], [255, 0, 0], diff) : chalk.bgLerp([0, 0, 0], [0, 255, 0], -diff))((Math.abs(diff) < 0.75 ? chalk.white : chalk.black)(s ? s.toPrecision(8) : s));
+        }).join(' ')} `);
+        process.stdout.clearLine(1);
+    }
+
+    if (isSelected && symbols[symbol].EMAs) {
+        process.stdout.cursorTo(106, candlesHeight + 2);
+        process.stdout.write(`     EMA ${symbols[symbol].EMAs.map(s => {
+            if (isNaN(s)) return '';
+            let diff = (s - symbols[symbol].price) / symbols[symbol].price * 100;
+            diff = Math.min(1.0, Math.max(-1.0, diff));
+            return (diff > 0 ? chalk.bgLerp([0, 0, 0], [255, 0, 0], diff) : chalk.bgLerp([0, 0, 0], [0, 255, 0], -diff))((Math.abs(diff) < 0.75 ? chalk.white : chalk.black)(s ? s.toPrecision(8) : s));
+        }).join(' ')} `);
+        process.stdout.clearLine(1);
+    }
+    if (isSelected && symbols[symbol].RSIs) {
+        process.stdout.cursorTo(106, candlesHeight + 3);
+        // addLogMessage(symbols[symbol].RSIs);
+        process.stdout.write(`     RSI ${symbols[symbol].RSIs.filter(isFinite).map(s => chalk.rgb(...(s < 50 ? lerpColor([200, 200, 200], [255, 125, 125], s / 50) : lerpColor([200, 200, 200], [125, 255, 125], (s - 50) / 50)))(('' +Math.round(s)).padStart(3))).join(' ')} `);
+        process.stdout.clearLine(1);
+    }
+    if (isSelected && symbols[symbol].StochasticRSIs) {
+        process.stdout.cursorTo(106, candlesHeight + 4);
+        process.stdout.write(`   stRSI ${symbols[symbol].StochasticRSIs.filter(isFinite).map(s => chalk.rgb(...(s < 50 ? lerpColor([200, 200, 200], [255, 125, 125], s / 50) : lerpColor([200, 200, 200], [125, 255, 125], (s - 50) / 50)))(('' +Math.round(s)).padStart(3))).join(' ')} `);
+        process.stdout.clearLine(1);
+    }
+    if (isSelected) {
+        const width = 30;
+        process.stdout.cursorTo(106, candlesHeight + 5);
+        process.stdout.clearLine(1);
+        process.stdout.cursorTo(106, candlesHeight + 6);
+        process.stdout.write('    ' + '24h min');
+        process.stdout.cursorTo(106 + width * 0.5 + '    '.length, candlesHeight + 6);
+        process.stdout.write('24h max'.padStart(width * 0.5 - 1));
+        process.stdout.cursorTo(106, candlesHeight + 7);
+        const progress = (symbols[symbol].price - symbols[symbol].low) / (symbols[symbol].high - symbols[symbol].low);
+
+        process.stdout.write('    ' + lerpChalk([255, 0, 0], [0, 255, 0], progress)('■'.repeat(progress*width))+
+        chalk.gray('□'.repeat((1.0 - progress)*width)));
+        // ▂▁
+        // process.stdout.write('    ' + chalk.underline('▾'.padStart(progress * width, ' ').padEnd(width, ' ')));
+        process.stdout.cursorTo(106, candlesHeight + 8);
+        process.stdout.write('    ' + parseFloat(symbols[symbol].low).toPrecision(6).replace(/(\.\d+)(?<!0)0+/, '$1').padEnd(width / 2) +
+        parseFloat(symbols[symbol].high).toPrecision(8).replace(/(\.\d+)(?<!0)0+/, '$1').padStart(width / 2 - 1, ' '));
+    }
+    if (isSelected) {
+        process.stdout.cursorTo(106, candlesHeight + 0);
+        process.stdout.clearLine(1);
+        const width = 26;
+        process.stdout.cursorTo(106, candlesHeight + 10);
+        process.stdout.clearLine(1);
+
+        const halfWidth = Math.floor(width / 2);
+        const velocity = velocities[symbol] || 0;
+        const indicator = '■'.repeat(Math.min(halfWidth, Math.round(Math.abs(velocity * width * 10000))));
+        const alpha = Math.floor(Math.abs(velocity * width * 10000));
+        process.stdout.write('      ');
+        if (velocities[symbol] > 0) {
+            process.stdout.write(chalk.white('■'.repeat(halfWidth)));
+        }
+        else {
+            process.stdout.write(chalk.white('■'.repeat(Math.max(0, halfWidth - alpha))));
+        }
+        process.stdout.write((velocity > 0 ? chalk.green : chalk.red)('■'.repeat(Math.min(halfWidth, alpha))));
+        if (velocities[symbol] < 0) {
+            process.stdout.write(chalk.white('■'.repeat(halfWidth)));
+        } else {
+            process.stdout.write(chalk.white('■'.repeat(Math.max(0, halfWidth - alpha))));
+        }
+        process.stdout.cursorTo(106, candlesHeight + 11);
+        // process.stdout.cursorTo(106, candlesHeight + 10);
+        process.stdout.clearLine(1);
+        process.stdout.write(chalk.lerp([255,0,0],[0,255,0], clamp(velocity * 10000, -1, 1) * 0.5 + 0.5)('▴'.padStart(6 + (velocity < 0 ? 1 : 0) +
+        (velocity < 0 ? Math.max(0, halfWidth - alpha) : halfWidth + Math.min(halfWidth, alpha)))));
+    }
 }
 
 
@@ -866,6 +983,14 @@ let selectedRow = -1;
         {
             candleData = [];
             printSymbol(Object.keys(currencies).sort()[lastSelectedRow]);
+            process.stdout.cursorTo(106, candlesHeight + 1);
+            process.stdout.clearLine(1);
+            process.stdout.cursorTo(106, candlesHeight + 2);
+            process.stdout.clearLine(1);
+            process.stdout.cursorTo(106, candlesHeight + 3);
+            process.stdout.clearLine(1);
+            process.stdout.cursorTo(106, candlesHeight + 4);
+            process.stdout.clearLine(1);
         }
 
         if (Settings.enableInputLogging)
@@ -929,8 +1054,10 @@ async function tick(time, symbol)
     }
 
     const isSelected = Object.keys(currencies).sort().indexOf(symbol) === selectedRow;
+
     if (isSelected && candleData.length) {
         candleData[candleData.length - 1].update(time, symbols[symbol].price);
+        symbols[symbol].updateIndicators();
     }
 
     const currentPrice = symbols[symbol].price;
@@ -1015,8 +1142,7 @@ async function tick(time, symbol)
                     }
                 }
             } catch (e) {
-                str = 'trade failed: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ' + e;
-                addLogMessage(str);
+                addLogMessage('🚫 TRADE FAILED: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ', e);
             }
         }
     }
