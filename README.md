@@ -1,3 +1,7 @@
+### What is this?
+Terminal interface for spot trading on Binance.
+
+Intended to run inside `screen` on persistent server somewhere close to Binance.
 ### How to use
 
 1. Clone the repository or download source code
