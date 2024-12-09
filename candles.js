@@ -17,6 +17,17 @@ const UNICODE_TOP = '╽';
 const UNICODE_BOTTOM = '╿';
 const UNICODE_UPPER_WICK = '╷';
 const UNICODE_LOWER_WICK = '╵';
+const UNICODE_MID = '┿';
+const UNICODE_HORIZ = '━';
+// '╷','│','╽','┃'
+// '╵','│','╿','┃'
+// ' ',' ','╻','┃'
+// ' ',' ','╹','┃'
+
+const UP_W = ['╷','│','╽','┃'];
+const DOWN_W = ['╵','│','╿','┃'];
+const UP_B = [' ',' ','╻','┃'];
+const DOWN_B = [' ',' ','╹','┃'];
 
 class Candle {
     constructor(data) {
@@ -52,47 +63,35 @@ class Candle {
         const step = (max - min) / height;
         const startPrice = max - step * (y + 1);
         const endPrice = max - step * y;
-        if (startPrice >= Math.min(this.open, this.close) &&
-            startPrice <= Math.max(this.open, this.close)) {
-            if (endPrice >=Math.min(this.open, this.close) && endPrice <= Math.max(this.open, this.close)) {
-                return UNICODE_BODY;
-            }
-            if (endPrice <= this.high) {
-                return UNICODE_TOP;
-            }
-            return UNICODE_HALF_BODY_BOTTOM;
-        } else if (endPrice >= Math.min(this.open, this.close) &&
-                   endPrice <= Math.max(this.open, this.close)) {
-            if (startPrice > Math.min(this.open, this.close)) {
-                return UNICODE_BODY;
-            }
-            if (startPrice > this.low) {
-                return UNICODE_BOTTOM;
-            }
-            return UNICODE_HALF_BODY_TOP;
+
+        const openCloseMin = Math.min(this.open, this.close);
+        const openCloseMax = Math.max(this.open, this.close);
+
+        if (startPrice < openCloseMin && endPrice > openCloseMax) {
+            return this.low > startPrice && this.high < endPrice ? (
+                (Math.abs(this.high - this.low) / Math.abs(startPrice - endPrice) < 0.25) ? UNICODE_HORIZ :UNICODE_MID) : UNICODE_BODY;
         }
-        if (startPrice <= Math.min(this.open, this.close) &&
-            endPrice >= Math.max(this.open, this.close)) {
+        if (startPrice >= openCloseMin && startPrice <= openCloseMax) {
+            if (endPrice >= openCloseMin && endPrice <= openCloseMax) {
                 return UNICODE_BODY;
+            }
+            return endPrice <= this.high ? UNICODE_TOP : UNICODE_HALF_BODY_BOTTOM;
+        }
+        if (endPrice >= openCloseMin && endPrice <= openCloseMax) {
+            return startPrice > openCloseMin ? UNICODE_BODY : (startPrice > this.low ? UNICODE_BOTTOM : UNICODE_HALF_BODY_TOP);
+        }
+        if (startPrice <= openCloseMin && endPrice >= openCloseMax) {
+            return UNICODE_BODY;
         }
         if (startPrice < this.close && endPrice >= this.close) {
-            if (startPrice < this.low && endPrice > this.low) {
-                return UNICODE_HALF_BODY_TOP;
-            }
-            return UNICODE_TOP;
-        } else if (startPrice < this.open && endPrice >= this.open) {
-            if (startPrice < this.low && endPrice > this.low) {
-                return UNICODE_HALF_BODY_BOTTOM;
-            }
-            return UNICODE_TOP;
-        } else if (startPrice >= this.low && endPrice <= this.high) {
+            return startPrice < this.low && endPrice > this.low ? UNICODE_HALF_BODY_TOP : UNICODE_TOP;
+        }
+        if (startPrice < this.open && endPrice >= this.open) {
+            return startPrice < this.low && endPrice > this.low ? UNICODE_HALF_BODY_BOTTOM : UNICODE_TOP;
+        }
+        if (startPrice >= this.low && endPrice <= this.high) {
             const mid = (startPrice + endPrice) / 2;
-            if (this.low >= (mid + this.low) / 2) {
-                return UNICODE_LOWER_WICK;
-            } else if (this.high <= (mid + this.high) / 2) {
-                return UNICODE_UPPER_WICK;
-            }
-            return UNICODE_WICK;
+            return this.low >= (mid + this.low) / 2 ? UNICODE_LOWER_WICK : (this.high <= (mid + this.high) / 2 ? UNICODE_UPPER_WICK : UNICODE_WICK);
         }
         return UNICODE_VOID;
     }

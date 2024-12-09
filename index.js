@@ -156,7 +156,10 @@ async function save(symbol, amount, price, total, fee, time) {
                     resolve(new Trade(symbol, amount, price, total, fee, time));
                     setTimeout(() => {
                         cache.del(`${symbol.replace(/USDT$/, '')}_${new Date().getUTCDay()}`);
-                        cache.del(`total_${new Date().getUTCDay()}`);
+                        cache.keys().filter(k =>
+                                k.startsWith(`${symbol.replace(/USDT$/, '')}_`) ||
+                                k.startsWith(`total_`))
+                            .forEach(k => cache.del(k));
                     }, 100);
                 });
 
@@ -167,8 +170,8 @@ async function save(symbol, amount, price, total, fee, time) {
     });
 }
 
-async function readProfits(symbol) {
-    const cacheKey = `${symbol ? symbol : 'total'}_${new Date().getUTCDay()}`;
+async function readProfits(symbol, since='start of day') {
+    const cacheKey = `${symbol ? symbol : 'total'}_${new Date().getUTCDay()}_${since}`;
     const cached = cache.get(cacheKey);
     if (cached || cached === 0) {
         return cached;
@@ -179,7 +182,7 @@ async function readProfits(symbol) {
             if (symbol) {
                 db.each(`SELECT SUM(total) as total FROM transactions ` +
                         `WHERE symbol = '${symbol}USDT' ` +
-                        `AND time >= DATETIME('now', 'start of day')`, (err, row) => {
+                        `AND time >= DATETIME('now', '${since}')`, (err, row) => {
                 // db.each(`SELECT SUM(total) as total FROM transactions WHERE symbol = '${symbol}USDT'`, (err, row) => {
                     if (err) {
                         reject(err);
@@ -191,7 +194,7 @@ async function readProfits(symbol) {
                 });
             } else {
                 db.each(`SELECT SUM(total) as total FROM transactions ` +
-                        `WHERE time >= DATETIME('now', 'start of day')`, (err, row) => {
+                        `WHERE time >= DATETIME('now', '${since}')`, (err, row) => {
                     // db.each(`SELECT SUM(total) as total FROM transactions`, (err, row) => {
                     if (err) {
                         reject(err);
@@ -413,6 +416,8 @@ function printTrades() {
     }
 }
 
+let candlesX = 96;
+
 async function printSymbol(symbol) {
 
     if (!(symbol in symbols)) {
@@ -512,9 +517,9 @@ async function printSymbol(symbol) {
     const isSelected = Object.keys(currencies).sort().indexOf(symbol) === selectedRow;
     const total = Object.keys(currencies).reduce((acc, symbol) => acc + currencies[symbol], 0);
     const max = Object.keys(currencies).reduce((acc, symbol) => Math.max(acc, currencies[symbol] / total), 0);
-    const fraction = currencies[symbol] / total / max;
+    const fraction = Math.pow(currencies[symbol] / total / max, 1.0 / Math.E);
 
-    let str = `${(Math.round(currencies[symbol]) + '').padEnd(20)}`;
+    let str = `${(Math.round(currencies[symbol]) + '').padEnd(10)}`;
     const m = isSelected ? 2 : 1;
     str = chalk.bgRgb(10*m,50*m,120*m)(chalk.rgb(210, 210, 210)(str.substring(0, Math.round(fraction * str.length)))) +
             chalk.bgRgb(0*m,0*m,25*m)(str.substring(Math.round(fraction * str.length)));
@@ -529,9 +534,9 @@ async function printSymbol(symbol) {
         ` ${(deltaUsd < 0 ? (-deltaUsd > symbols[symbol].sellThreshold ? chalk.greenBright : chalk.green) :
         (deltaUsd > symbols[symbol].buyThreshold ? chalk.redBright : chalk.red))(colorizeDeltaUsd(symbol, -deltaUsd))} ` +
         await colorizeSymbolProfit(symbol, symbolProfit) + ' ' +
-        chalk.bgRgb(isSelected ? 100 : 50, 25, 25)(`${symbols[symbol].enableTrade ? '🟢' : '🟥'} ` +
-        ` -${parseFloat(symbols[symbol].buyThreshold).toFixed(0).padEnd(4)}` +
-        ` ${parseFloat(symbols[symbol].sellThreshold).toFixed(0).padEnd(4)}`);
+         (symbols[symbol].enableTrade ? chalk.bgRgb(isSelected ? 50 : 25, isSelected ? 100 : 50, isSelected ? 50 : 25) : chalk.bgRgb(isSelected ? 100 : 50, isSelected ? 100 : 50, isSelected ? 100 : 50))(`${symbols[symbol].enableTrade ? '🟢' : '🟥'} ` +
+        ` ${chalk.red('-' + parseFloat(symbols[symbol].buyThreshold).toFixed(0).padEnd(4))}` +
+        ` ${chalk.green(parseFloat(symbols[symbol].sellThreshold).toFixed(0).padEnd(4))}`);
 
     const keys = Object.keys(currencies).sort();
     process.stdout.cursorTo(0, keys.indexOf(symbol));
@@ -553,7 +558,6 @@ async function printSymbol(symbol) {
         return;
     }
 
-    const candlesX = 106;
     const candlesWidth = process.stdout.columns - candlesX - 1;
     candlesHeight = Math.round(20 / 80 * candlesWidth);
 
@@ -581,8 +585,10 @@ async function printSymbol(symbol) {
     process.stdout.cursorTo(candlesX, rows.length - 1);
     process.stdout.write(chalk.bgRgb(25, 25, 25)(`${minValue}`));
 
-    process.stdout.cursorTo(candlesX + candlesWidth - 100, rows.length);
-    process.stdout.write(`F3⮜ ${candleScales[candleScale]} ⮞F4`.padStart(100).replace('F3', chalk.whiteBright('F3')).replace('F4', chalk.whiteBright('F4')).replace(/⮜ (.*) ⮞/, '⮜ '+ chalk.bgWhite(chalk.black('$1')) + ' ⮞'));
+    const delInsStr = `DEL⮜ ${candleScales[candleScale]} ⮞INS`;
+    process.stdout.cursorTo(process.stdout.columns - delInsStr.length - 1, rows.length);
+
+    process.stdout.write(delInsStr.replace('DEL', chalk.whiteBright('DEL')).replace('INS', chalk.whiteBright('INS')).replace(/⮜ (.*) ⮞/, '⮜ '+ chalk.bgWhite(chalk.black('$1')) + ' ⮞'));
     // process.stdout.clearLine(1);
     // const currentRow = Math.round((1.0 - (symbols[symbol].price - minValue) / (maxValue - minValue)) * rows.length);
     // addLogMessage(currentRow);
@@ -590,89 +596,93 @@ async function printSymbol(symbol) {
     // process.stdout.write(`${minValue}`);
     // process.stdout.clearLine(1);
 
-    // process.stdout.cursorTo(106, candlesHeight);
+    // process.stdout.cursorTo(candlesX, candlesHeight);
     process.stdout.clearLine(1);
 
     if (isSelected && symbols[symbol].SMAs) {
-        process.stdout.cursorTo(106, candlesHeight + 1);
+        process.stdout.cursorTo(candlesX, candlesHeight + 1);
         process.stdout.write(`     SMA ${symbols[symbol].SMAs.map(s => {
             if (isNaN(s)) return '';
             let diff = (s - symbols[symbol].price) / symbols[symbol].price * 100;
             diff = Math.min(1.0, Math.max(-1.0, diff));
-            return (diff > 0 ? chalk.bgLerp([0, 0, 0], [255, 0, 0], diff) : chalk.bgLerp([0, 0, 0], [0, 255, 0], -diff))((Math.abs(diff) < 0.75 ? chalk.white : chalk.black)(s ? s.toPrecision(8) : s));
+            return (diff > 0 ? chalk.bgLerp([0, 0, 0], [255, 0, 0], diff) : chalk.bgLerp([0, 0, 0], [0, 255, 0], -diff))((Math.abs(diff) < 0.5 ? chalk.white : chalk.black)(s ? s.toPrecision(8) : s));
         }).join(' ')} `);
         process.stdout.clearLine(1);
     }
 
     if (isSelected && symbols[symbol].EMAs) {
-        process.stdout.cursorTo(106, candlesHeight + 2);
+        process.stdout.cursorTo(candlesX, candlesHeight + 2);
         process.stdout.write(`     EMA ${symbols[symbol].EMAs.map(s => {
             if (isNaN(s)) return '';
             let diff = (s - symbols[symbol].price) / symbols[symbol].price * 100;
             diff = Math.min(1.0, Math.max(-1.0, diff));
-            return (diff > 0 ? chalk.bgLerp([0, 0, 0], [255, 0, 0], diff) : chalk.bgLerp([0, 0, 0], [0, 255, 0], -diff))((Math.abs(diff) < 0.75 ? chalk.white : chalk.black)(s ? s.toPrecision(8) : s));
+            return (diff > 0 ? chalk.bgLerp([0, 0, 0], [255, 0, 0], diff) : chalk.bgLerp([0, 0, 0], [0, 255, 0], -diff))((Math.abs(diff) < 0.5 ? chalk.white : chalk.black)(s ? s.toPrecision(8) : s));
         }).join(' ')} `);
         process.stdout.clearLine(1);
     }
     if (isSelected && symbols[symbol].RSIs) {
-        process.stdout.cursorTo(106, candlesHeight + 3);
+        process.stdout.cursorTo(candlesX, candlesHeight + 3);
         // addLogMessage(symbols[symbol].RSIs);
         process.stdout.write(`     RSI ${symbols[symbol].RSIs.filter(isFinite).map(s => chalk.rgb(...(s < 50 ? lerpColor([200, 200, 200], [255, 125, 125], s / 50) : lerpColor([200, 200, 200], [125, 255, 125], (s - 50) / 50)))(('' +Math.round(s)).padStart(3))).join(' ')} `);
         process.stdout.clearLine(1);
     }
     if (isSelected && symbols[symbol].StochasticRSIs) {
-        process.stdout.cursorTo(106, candlesHeight + 4);
+        process.stdout.cursorTo(candlesX, candlesHeight + 4);
         process.stdout.write(`   stRSI ${symbols[symbol].StochasticRSIs.filter(isFinite).map(s => chalk.rgb(...(s < 50 ? lerpColor([200, 200, 200], [255, 125, 125], s / 50) : lerpColor([200, 200, 200], [125, 255, 125], (s - 50) / 50)))(('' +Math.round(s)).padStart(3))).join(' ')} `);
         process.stdout.clearLine(1);
     }
     if (isSelected) {
         const width = 30;
-        process.stdout.cursorTo(106, candlesHeight + 5);
+        process.stdout.cursorTo(candlesX, candlesHeight + 5);
         process.stdout.clearLine(1);
-        process.stdout.cursorTo(106, candlesHeight + 6);
-        process.stdout.write('    ' + '24h min');
-        process.stdout.cursorTo(106 + width * 0.5 + '    '.length, candlesHeight + 6);
-        process.stdout.write('24h max'.padStart(width * 0.5 - 1));
-        process.stdout.cursorTo(106, candlesHeight + 7);
+        process.stdout.cursorTo(candlesX, candlesHeight + 6);
+        process.stdout.write('    ' + 'min');
+        process.stdout.cursorTo(candlesX + width * 0.5 + '    '.length, candlesHeight + 6);
+        process.stdout.write('max'.padStart(width * 0.5 - 1));
+        process.stdout.cursorTo(candlesX + width * 0.5 - 1 + '    '.length, candlesHeight + 6);
+        process.stdout.write('24h');
+        process.stdout.cursorTo(candlesX, candlesHeight + 7);
         const progress = (symbols[symbol].price - symbols[symbol].low) / (symbols[symbol].high - symbols[symbol].low);
 
         process.stdout.write('    ' + lerpChalk([255, 0, 0], [0, 255, 0], progress)('■'.repeat(progress*width))+
         chalk.gray('□'.repeat((1.0 - progress)*width)));
         // ▂▁
         // process.stdout.write('    ' + chalk.underline('▾'.padStart(progress * width, ' ').padEnd(width, ' ')));
-        process.stdout.cursorTo(106, candlesHeight + 8);
+        process.stdout.cursorTo(candlesX, candlesHeight + 8);
         process.stdout.write('    ' + parseFloat(symbols[symbol].low).toPrecision(6).replace(/(\.\d+)(?<!0)0+/, '$1').padEnd(width / 2) +
         parseFloat(symbols[symbol].high).toPrecision(8).replace(/(\.\d+)(?<!0)0+/, '$1').padStart(width / 2 - 1, ' '));
     }
     if (isSelected) {
-        process.stdout.cursorTo(106, candlesHeight + 0);
-        process.stdout.clearLine(1);
+        // process.stdout.cursorTo(candlesX, candlesHeight + 0);
+        // process.stdout.clearLine(1);
         const width = 26;
-        process.stdout.cursorTo(106, candlesHeight + 10);
+        process.stdout.cursorTo(candlesX, candlesHeight + 10);
         process.stdout.clearLine(1);
 
         const halfWidth = Math.floor(width / 2);
         const velocity = velocities[symbol] || 0;
-        const indicator = '■'.repeat(Math.min(halfWidth, Math.round(Math.abs(velocity * width * 10000))));
         const alpha = Math.floor(Math.abs(velocity * width * 10000));
         process.stdout.write('      ');
         if (velocities[symbol] > 0) {
-            process.stdout.write(chalk.white('■'.repeat(halfWidth)));
+            process.stdout.write(chalk.white('─'.repeat(halfWidth)));
+            process.stdout.write(chalk.white('┼'));
         }
         else {
-            process.stdout.write(chalk.white('■'.repeat(Math.max(0, halfWidth - alpha))));
+            process.stdout.write(chalk.white('─'.repeat(Math.max(0, halfWidth - alpha))));
         }
         process.stdout.write((velocity > 0 ? chalk.green : chalk.red)('■'.repeat(Math.min(halfWidth, alpha))));
         if (velocities[symbol] < 0) {
-            process.stdout.write(chalk.white('■'.repeat(halfWidth)));
+            process.stdout.write(chalk.white('┼'));
+            process.stdout.write(chalk.white('─'.repeat(halfWidth)));
         } else {
-            process.stdout.write(chalk.white('■'.repeat(Math.max(0, halfWidth - alpha))));
+            process.stdout.write(chalk.white('─'.repeat(Math.max(0, halfWidth - alpha))));
         }
-        process.stdout.cursorTo(106, candlesHeight + 11);
-        // process.stdout.cursorTo(106, candlesHeight + 10);
-        process.stdout.clearLine(1);
-        process.stdout.write(chalk.lerp([255,0,0],[0,255,0], clamp(velocity * 10000, -1, 1) * 0.5 + 0.5)('▴'.padStart(6 + (velocity < 0 ? 1 : 0) +
+        process.stdout.cursorTo(candlesX, candlesHeight + 11);
+        // process.stdout.cursorTo(candlesX, candlesHeight + 10);
+
+        process.stdout.write(chalk.lerp([255,0,0],[0,255,0], clamp(velocity * 10000, -1, 1) * 0.5 + 0.5)('▴'.padStart(7 +
         (velocity < 0 ? Math.max(0, halfWidth - alpha) : halfWidth + Math.min(halfWidth, alpha)))));
+        process.stdout.clearLine(1);
     }
 }
 
@@ -724,7 +734,7 @@ const lines = {}
 
 const logMessages = [];
 const addLogMessage = (...msgs) => {
-    logMessages.push(msgs.map(msg => msg.toString()).join(' '));
+    logMessages.push(msgs.map(msg => msg ? msg.toString() : '' + msg).join(' '));
     while (logMessages.length > process.stdout.rows - Object.keys(currencies).length - 1) {
         logMessages.shift();
     }
@@ -779,6 +789,7 @@ let selectedRow = -1;
 
             if (code[2] === 65) // up
             {
+                lookupStr = '';
                 if (selectedRow == -1) {
                     selectedRow = Object.keys(currencies).length - 1;
                 } else {
@@ -787,6 +798,7 @@ let selectedRow = -1;
             }
             else if (code[2] === 66) // down
             {
+                lookupStr = '';
                 if (selectedRow == Object.keys(currencies).length - 1) {
                     selectedRow = -1;
                 } else {
@@ -834,11 +846,13 @@ let selectedRow = -1;
             }
             else if (code[2] === 49) // home
             {
+                lookupStr = '';
                 selectedRow = 0;
             }
             else if (code[2] === 52) // end
             {
                 selectedRow = Object.keys(currencies).length - 1;
+                lookupStr = '';
             }
             else if (code[2] === 91) // Fn keys
             {
@@ -850,16 +864,16 @@ let selectedRow = -1;
                 {
                     enableBuy = !enableBuy;
                 }
-                else if (code[3] === 67) // F3
-                {
-                    candleScale = Math.min(candleScales.length - 1, candleScale + 1);
-                    candleData = [];
-                }
-                else if (code[3] === 68) // F4
-                {
-                    candleScale = Math.max(0, candleScale - 1);
-                    candleData = [];
-                }
+            }
+            else if (code[2] === 51) // DEL
+            {
+                candleScale = Math.min(candleScales.length - 1, candleScale + 1);
+                candleData = [];
+            }
+            else if (code[2] === 50) // INS
+            {
+                candleScale = Math.max(0, candleScale - 1);
+                candleData = [];
             }
         }
         else if (code.length >= 3 && code[0] === 27 && code[1] === 79)
@@ -872,11 +886,22 @@ let selectedRow = -1;
             {
                 enableBuy = !enableBuy;
             }
+            else if (code[2] === 82) // F3
+            {
+                candleScale = Math.min(candleScales.length - 1, candleScale + 1);
+                candleData = [];
+            }
+            else if (code[2] === 83) // F4
+            {
+                candleScale = Math.max(0, candleScale - 1);
+                candleData = [];
+            }
         }
         else if (code.length === 1) {
             if (code[0] === 27) { // esc
                 const oldRow = selectedRow;
                 selectedRow = -1;
+                lookupStr = '';
                 if (oldRow >= 0) {
                     printSymbol(Object.keys(currencies).sort()[oldRow]);
                 }
@@ -925,7 +950,7 @@ let selectedRow = -1;
 
                 help.reverse().forEach((line, i) => addLogMessage(line));
             }
-            else if (code[0] === 91) // minus
+            else if (code[0] === 45) // minus
             {
                 if (selectedRow >= 0) {
                     const symbol = Object.keys(currencies).sort()[selectedRow];
@@ -934,7 +959,7 @@ let selectedRow = -1;
                     printSymbol(symbol);
                 }
             }
-            else if (code[0] === 93) // plus
+            else if (code[0] === 61) // plus
             {
                 if (selectedRow >= 0) {
                     const symbol = Object.keys(currencies).sort()[selectedRow];
@@ -943,7 +968,7 @@ let selectedRow = -1;
                 }
             }
 
-            else if (code[0] === 45) // minus
+            else if (code[0] === 93) // minus
             {
                 if (selectedRow >= 0) {
                     const symbol = Object.keys(currencies).sort()[selectedRow];
@@ -953,7 +978,7 @@ let selectedRow = -1;
                     printSymbol(symbol);
                 }
             }
-            else if (code[0] === 61) // plus
+            else if (code[0] === 91) // plus
             {
                 if (selectedRow >= 0) {
                     const symbol = Object.keys(currencies).sort()[selectedRow];
@@ -983,13 +1008,13 @@ let selectedRow = -1;
         {
             candleData = [];
             printSymbol(Object.keys(currencies).sort()[lastSelectedRow]);
-            process.stdout.cursorTo(106, candlesHeight + 1);
+            process.stdout.cursorTo(candlesX, candlesHeight + 1);
             process.stdout.clearLine(1);
-            process.stdout.cursorTo(106, candlesHeight + 2);
+            process.stdout.cursorTo(candlesX, candlesHeight + 2);
             process.stdout.clearLine(1);
-            process.stdout.cursorTo(106, candlesHeight + 3);
+            process.stdout.cursorTo(candlesX, candlesHeight + 3);
             process.stdout.clearLine(1);
-            process.stdout.cursorTo(106, candlesHeight + 4);
+            process.stdout.cursorTo(candlesX, candlesHeight + 4);
             process.stdout.clearLine(1);
         }
 
@@ -1011,6 +1036,8 @@ const printStats = async (symbol, deltaPrice) =>{
     printSymbol(symbol);
 
     const profits = await readProfits();
+    process.stdout.cursorTo(process.stdout.columns - 50, process.stdout.rows - 1);
+    process.stdout.write(`${(await readProfits(undefined, '-1000 years')).toFixed(2)}`.padStart(50));
     const deltaSum = Object.keys(currencies).reduce((acc, delta) => acc + deltas[delta], 0);
     const deltaSumStr = (deltaSum < 0 ? '+' : '') + formatFloat(-deltaSum);
     const profitsStr = (profits >= 0 ? '+' : '') + formatFloat(profits);
@@ -1021,16 +1048,23 @@ const printStats = async (symbol, deltaPrice) =>{
     process.stdout.write(`📋 ${chalk.whiteBright('F1')}${enableTrade ? '🟢' : '🟥'}💵`);
     process.stdout.write(` ${chalk.whiteBright('F2')}${enableBuy ? '🟢' : '🟥'}🪙`);
     process.stdout.cursorTo('                       '.length, Object.keys(currencies).length);
-    process.stdout.write(`±${('' + steps[step]).padEnd(4)}`);
 
-    process.stdout.cursorTo('                             '.length, Object.keys(currencies).length);
-    process.stdout.write(`${Math.round(balances.USDT)}`.padStart(16));
-    process.stdout.write(` ${chalk.yellow('⇄')} `);
+
+    process.stdout.cursorTo(35, Object.keys(currencies).length);
+    const padded = `${Math.round(balances.USDT)} +${('' + steps[step])} =`;
+    const padding = ' '.repeat(Math.max(0, 13 - padded.length));
+    // addLogMessage(padding.length);
+    // process.stdout.write(padded)
+    process.stdout.write((padding + `${Math.round(balances.USDT)}` +
+                          ` ${chalk.grey('±')}${('' + steps[step])}` +
+                          ` ${chalk.yellow('⇄')}`));
+
+    process.stdout.cursorTo(49, Object.keys(currencies).length);
     process.stdout.write(`${`${Math.round(Object.values(currencies).reduce((acc, currency) => acc + currency, 0))}`.padEnd(11)}`);
 
-    process.stdout.cursorTo('                                                           '.length, Object.keys(currencies).length);
+    process.stdout.cursorTo(60, Object.keys(currencies).length);
     process.stdout.write(`${deltaSumColor(deltaSumStr.padEnd(11))}${profitsColor(profitsStr.padEnd(11))}`);
-    process.stdout.cursorTo(81, Object.keys(currencies).length);
+    process.stdout.cursorTo(82, Object.keys(currencies).length);
     process.stdout.write(chalk.bgRgb(50, 25, 25)(`    ` +
     `${chalk.red('↓')}${chalk.whiteBright('-')}${chalk.green('↑')}${chalk.whiteBright('=')} ` +
     `${chalk.red('↓')}${chalk.whiteBright('[')}${chalk.green('↑')}${chalk.whiteBright(']')} `));

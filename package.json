@@ -20,5 +20,8 @@
     "sqlite3": "^5.1.7",
     "terminal-kit": "^3.1.1",
     "trading-indicator": "^2.0.4"
+  },
+  "devDependencies": {
+    "mocha": "^11.0.1"
   }
 }
