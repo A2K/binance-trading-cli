@@ -1,9 +1,9 @@
 import fs from 'fs';
 import { DelayedExecution } from './utils';
 
-type ConfigFile = 'settings' | 'thresholds' | 'enabledBuys' | 'enabledSells' | 'maxDailyLosses' | 'interpSpeeds';
+export type ConfigFile = 'settings' | 'thresholds' | 'enabledBuys' | 'enabledSells' | 'maxDailyLosses' | 'interpSpeeds';
 
-function getConfig(configFile: ConfigFile, defaultValue: any = {}) {
+export function getConfig(configFile: ConfigFile, defaultValue: any = {}) {
     try {
         return require(`./config/${configFile}.json`);
     } catch (e) {
@@ -13,6 +13,7 @@ function getConfig(configFile: ConfigFile, defaultValue: any = {}) {
 
 const __saveDelays: { [key: string]: DelayedExecution } = {};
 export function saveConfigFile(configFile: ConfigFile, value: any) {
+    fs.existsSync('./config') || fs.mkdirSync('./config');
     (__saveDelays[configFile] || (__saveDelays[configFile] = new DelayedExecution(100, () => {
         fs.writeFileSync(`./config/${configFile}.json`, JSON.stringify(value, null, 4));
     }))).execute();

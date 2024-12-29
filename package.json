@@ -4,9 +4,10 @@
   "description": "Binance trading interface",
   "main": "src/index.ts",
   "scripts": {
+    "baseimg": "docker compose -f baseimg.compose.yml build",
     "build": "tsc && docker compose build",
     "start": "docker compose up -d",
-    "attach": "docker container exec -it binance-timescaledb tmux new-session -As tradebot \"node index.js\""
+    "attach": "docker container exec -it tradebot tmux new-session -As tradebot \"node index.js\""
   },
   "author": "A2K",
   "license": "ISC",
