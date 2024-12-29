@@ -1,0 +1,5 @@
+build/*
+.env
+*.json
+transactions.db
+*.js

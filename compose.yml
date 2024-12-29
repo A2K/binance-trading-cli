@@ -1,0 +1,23 @@
+name: tradebot
+
+services:
+
+  tradebot:
+    container_name: tradebot
+    image: a2k0001/tradebot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: -p ${TIMESCALEDB_PORT}
+    volumes:
+      - ./.env:/app/.env
+      - timescaledb:/home/postgres/pgdata/data
+    ports:
+      - ${TIMESCALEDB_PORT}:${TIMESCALEDB_PORT}
+    expose:
+      - ${TIMESCALEDB_PORT}
+    environment:
+      - POSTGRES_PASSWORD=${TIMESCALEDB_PASSWORD}
+
+volumes:
+  timescaledb:

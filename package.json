@@ -1,28 +1,29 @@
 {
   "name": "binance",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Binance trading interface",
+  "main": "src/index.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js"
+    "build": "tsc && docker compose build",
+    "start": "docker compose up -d",
+    "attach": "docker container exec -it binance-timescaledb tmux new-session -As tradebot \"node index.js\""
   },
-  "author": "",
+  "author": "A2K",
   "license": "ISC",
   "dependencies": {
     "binance-api-node": "^0.12.9",
     "chalk": "^4.1.2",
-    "clui": "^0.3.6",
     "dotenv": "^16.4.7",
-    "drawille": "^2.0.2",
     "fuse.js": "^7.0.0",
     "limiter": "^2.1.0",
+    "postgres": "^3.4.5",
     "memory-cache": "^0.2.0",
-    "sqlite3": "^5.1.7",
-    "terminal-kit": "^3.1.1",
+    "source-map-support": "^0.5.21",
     "trading-indicator": "^2.0.4"
   },
   "devDependencies": {
+    "@cspotcode/source-map-support": "^0.8.1",
+    "@types/memory-cache": "^0.2.6",
     "mocha": "^11.0.1"
   }
 }
