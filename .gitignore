@@ -1,5 +1,4 @@
-build/*
+dist/*
 .env
 *.json
 transactions.db
-*.js
