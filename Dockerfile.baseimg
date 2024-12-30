@@ -1,0 +1,8 @@
+FROM timescale/timescaledb:latest-pg17
+
+RUN apk update && apk add nodejs npm tmux
+
+COPY ../package.json /app/package.json
+COPY .tmux.conf /root/.tmux.conf
+
+RUN cd /app && npm install --production

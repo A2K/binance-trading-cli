@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { DelayedExecution } from './utils';
 
-export type ConfigFile = 'settings' | 'thresholds' | 'enabledBuys' | 'enabledSells' | 'maxDailyLosses' | 'interpSpeeds';
+export type ConfigFile = 'settings' | 'thresholds' | 'enabledBuys' | 'enabledSells' | 'maxDailyLosses' | 'interpSpeeds' | 'currencies';
 
 export function getConfig(configFile: ConfigFile, defaultValue: any = {}) {
     try {
@@ -19,6 +19,8 @@ export function saveConfigFile(configFile: ConfigFile, value: any) {
     }))).execute();
 }
 
+type StableCoin = 'USDC' | 'USDT';
+
 type SettingsType = {
     buyThreshold: number,
     sellThreshold: number,
@@ -27,18 +29,20 @@ type SettingsType = {
     enableTradeByDefault: boolean,
     enableInputLogging: boolean,
     showTime: boolean,
-    stableCoin: 'USDC' | 'USDT'
+    stableCoins: StableCoin[]
+    stableCoin: StableCoin
 };
 
 export const Settings: SettingsType = getConfig('settings', {
     buyThreshold: 35,
     sellThreshold: 25,
     maxDailyLoss: 0,
-    interpSpeed: 0.000125,
+    interpSpeed: 0.00003125,
     enableTradeByDefault: false,
     enableInputLogging: false,
     showTime: false,
-    stableCoin: 'USDT'
+    stableCoins: [ 'USDT', 'USDC' ],
+    stableCoin: 'USDT' as StableCoin // Default stable coin
 });
 
 export const thresholds: {

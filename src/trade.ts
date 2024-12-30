@@ -6,6 +6,7 @@ import { Row } from 'postgres';
 export class Trade implements MyTrade {
     id: number
     symbol: string
+    currency: string
     orderId: number
     orderListId: number
     price: string
@@ -33,6 +34,7 @@ export class Trade implements MyTrade {
     constructor(row: Row) {
         this.time = row.time.getTime();
         this.symbol = row.symbol;
+        this.currency = row.currency;
         this.id = parseInt(row.id);
         this.orderId = parseInt(row.orderId);
         this.orderListId = parseInt(row.orderListId);
@@ -58,7 +60,7 @@ export class Trade implements MyTrade {
                 timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
             })} ` +
             `${(this.isBuyer ? chalk.redBright : chalk.greenBright)((this.isBuyer ? '-' : '+') + Math.abs(this.quoteQuantity).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
-            `${(this.isBuyer ? chalk.green : chalk.red)((this.isBuyer ? '+' : '-') + Math.abs(this.quantity))} ${chalk.bold(this.symbol.replace(/USDT$/, ''))} at ${chalk.yellowBright(this.price)} ` +
+            `${(this.isBuyer ? chalk.green : chalk.red)((this.isBuyer ? '+' : '-') + Math.abs(this.quantity))} ${chalk.bold(this.symbol.replace(/USD[TC]$/, ''))} at ${chalk.yellowBright(this.price)} ` +
             chalk.rgb(125, 125, 125)(`fee ${chalk.rgb(150, 125, 50)(this.commission)} ${chalk.rgb(150, 150, 150)(this.commissionAsset)}`);
     }
 

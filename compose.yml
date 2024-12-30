@@ -11,7 +11,7 @@ services:
     command: -p ${TIMESCALEDB_PORT}
     volumes:
       - ./.env:/app/.env
-      - timescaledb:/home/postgres/pgdata/data
+      - database:/home/postgres/pgdata/data
       - ./config:/app/config
     ports:
       - ${TIMESCALEDB_PORT}:${TIMESCALEDB_PORT}
@@ -21,4 +21,4 @@ services:
       - POSTGRES_PASSWORD=${TIMESCALEDB_PASSWORD}
 
 volumes:
-  timescaledb:
+  database:

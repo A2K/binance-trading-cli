@@ -1,10 +1,10 @@
 import readline from 'readline';
 import chalk from 'chalk';
-import fs from 'fs';
 import Fuse from 'fuse.js';
-import Settings from './settings';
+import Settings, { saveConfigFile } from './settings';
 import { addLogMessage, printStats, printSymbol, printTrades } from './ui';
 import state from './state';
+import { redeemFlexibleProduct, redeemFlexibleProductAll, subscribeFlexibleProductAllFree } from './autostaking';
 
 var lookupStr = '';
 var lookupClearTimeout: NodeJS.Timer | undefined;
@@ -51,11 +51,42 @@ export default function registerInputHandlers() {
         for (let i = 0; i < key.length; i++) {
             code.push(key.charCodeAt(i));
         }
+
+        const cmp = (code: number[], arr: number[]) => {
+            if (code.length !== arr.length) {
+                return false;
+            }
+            for (let i = 0; i < code.length; i++) {
+                if (code[i] !== arr[i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (cmp(code, [27, 91, 49, 56, 126])) { // F7 - stake all (all assets)
+            for (const asset of Object.keys(state.currencies)) {
+                subscribeFlexibleProductAllFree(asset);
+            }
+        }
+        if (cmp(code, [27, 91, 49, 57, 126])) { // F8 - stake all (selected asset)
+            if (state.selectedRow >= 0) {
+                const asset: string = Object.keys(state.currencies).sort()[state.selectedRow];
+                subscribeFlexibleProductAllFree(asset);
+            }
+        }
+
+        if (cmp(code, [27, 91, 50, 48, 126])) { // F9 - unstake all
+            if (state.selectedRow >= 0) {
+                const asset: string = Object.keys(state.currencies).sort()[state.selectedRow];
+                redeemFlexibleProductAll(asset);
+            }
+        }
+
         if (code.length >= 3 && code[0] === 27 && code[1] === 91) {
             if (state.selectedRow >= 0) {
                 readline.cursorTo(process.stdout, 0, state.selectedRow);
-                if (state.symbols[Object.keys(state.currencies).sort()[state.selectedRow]]) {
-                    process.stdout.write(state.symbols[Object.keys(state.currencies).sort()[state.selectedRow]].statusLine + '');
+                if (state.assets[Object.keys(state.currencies).sort()[state.selectedRow]]) {
+                    process.stdout.write(state.assets[Object.keys(state.currencies).sort()[state.selectedRow]].statusLine + '');
                 }
             }
 
@@ -83,7 +114,7 @@ export default function registerInputHandlers() {
                     }
                     printSymbol(symbol);
                 }
-                fs.writeFileSync('./state.currencies.json', JSON.stringify(state.currencies, null, 4));
+                saveConfigFile('currencies', state.currencies);
             } else if (code[2] === 68) {
                 if (state.selectedRow >= 0) {
                     if ((state.currencies[Object.keys(state.currencies).sort()[state.selectedRow]] % state.steps[state.step]) > 1) {
@@ -93,12 +124,12 @@ export default function registerInputHandlers() {
                             Math.round((state.currencies[Object.keys(state.currencies).sort()[state.selectedRow]] - state.steps[state.step]) / state.steps[state.step]) * state.steps[state.step];
                     }
                 }
-                fs.writeFileSync('./state.currencies.json', JSON.stringify(state.currencies, null, 4));
+                saveConfigFile('currencies', state.currencies);
             } else if (code[2] === 53) {
                 state.step = Math.min(state.step + 1, state.steps.length - 1);
             } else if (code[2] === 54) {
                 state.step = Math.max(state.step - 1, 0);
-            } else if (code[2] === 49) {
+            } else if (cmp([27, 91, 49, 126], code)) { // HOME
                 lookupStr = '';
                 state.selectedRow = 0;
             } else if (code[2] === 52) {
@@ -108,72 +139,78 @@ export default function registerInputHandlers() {
                 if (code[3] === 65) {
                     if (state.selectedRow >= 0) {
                         const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
-                        state.symbols[symbol].enableSell = state.symbols[symbol].enableSell ? false : true;
+                        state.assets[symbol].enableSell = state.assets[symbol].enableSell ? false : true;
                     } else {
                         state.enableSell = !state.enableSell;
                     }
                 } else if (code[3] === 66) {
                     if (state.selectedRow >= 0) {
                         const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
-                        state.symbols[symbol].enableBuy = state.symbols[symbol].enableBuy ? false : true;
+                        state.assets[symbol].enableBuy = state.assets[symbol].enableBuy ? false : true;
                     } else {
                         state.enableBuy = !state.enableBuy;
                     }
                 }
             } else if (code[2] === 51) {
-                if (code[3] === 56) {
-                    if (state.selectedRow >= 0) {
-                        const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
-                        state.symbols[symbol].interpSpeed = Math.max(0.000001, state.symbols[symbol].interpSpeed * 0.5);
-                    }
-                } else if (code[3] === 57) {
-                    if (state.selectedRow >= 0) {
-                        const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
-                        state.symbols[symbol].interpSpeed = Math.min(1, state.symbols[symbol].interpSpeed * 2.0);
-                    }
+                if (code[3] === 56 || code[3] === 126) { // INSERT
+                    state.candles.scale = Math.min(state.candles.scales.length - 1, state.candles.scale + 1);
+                    state.candles.data = [];
+                }
+            } else if (code[2] === 50) {
+                if (code[3] === 57 || code[3] === 126) { // DELETE
+                    state.candles.scale = Math.max(0, state.candles.scale - 1);
+                    state.candles.data = [];
                 }
             }
         } else if (code.length >= 3 && code[0] === 27 && code[1] === 79) {
-            if (code[2] === 80) {
-                state.enableSell = !state.enableSell;
-            } else if (code[2] === 81) {
-                state.enableBuy = !state.enableBuy;
-            } else if (code[2] === 82) {
+            if (code[2] === 80) { // F1
+                if (state.selectedRow >= 0) {
+                    const asset = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[asset].enableSell = !state.assets[asset].enableSell;
+                } else {
+                    state.enableSell = !state.enableSell;
+                }
+            } else if (code[2] === 81) { // F2
+                if (state.selectedRow >= 0) {
+                    const asset = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[asset].enableBuy = !state.assets[asset].enableBuy;
+                } else {
+                    state.enableBuy = !state.enableBuy;
+                }
+            } else if (code[2] === 82) { // F3
                 state.candles.scale = Math.min(state.candles.scales.length - 1, state.candles.scale + 1);
                 state.candles.data = [];
-            } else if (code[2] === 83) {
+            } else if (code[2] === 83) { // F4
                 state.candles.scale = Math.max(0, state.candles.scale - 1);
                 state.candles.data = [];
             }
         } else if (code.length === 1) {
-            if (code[0] === 27) {
+            if (code[0] === 27) { // ESC
                 const oldRow: number = state.selectedRow;
                 state.selectedRow = -1;
                 lookupStr = '';
                 if (oldRow >= 0) {
                     printSymbol(Object.keys(state.currencies).sort()[oldRow]);
                 }
-            } else if (code[0] === 13) {
+            } else if (code[0] === 13) { // ENTER
                 if (state.selectedRow >= 0) {
                     const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
-                    state.symbols[symbol].forceTrade = true;
+                    state.assets[symbol].forceTrade = true;
                 }
-            } else if (code[0] === 39) {
+            } else if (code[0] === 39) { // RIGHT
                 Settings.enableInputLogging = !Settings.enableInputLogging;
-            } else if (key === 'q') {
-                process.exit();
-            } else if (key === '1') {
+            } else if (key === '1') { // 1
                 Settings.interpSpeed *= 2;
                 addLogMessage(`INTERPOLATION SPEED SET TO ${Settings.interpSpeed}`);
-            } else if (key === '2') {
+            } else if (key === '2') { // 2
                 Settings.interpSpeed /= 2;
                 addLogMessage(`INTERPOLATION SPEED SET TO ${Settings.interpSpeed}`);
-            } else if (code[0] === 9) {
+            } else if (code[0] === 9) { // TAB
                 Settings.showTime = !Settings.showTime;
                 readline.cursorTo(process.stdout, 0, 0);
                 readline.clearScreenDown(process.stdout);
                 printTrades();
-            } else if (code[0] === 63) {
+            } else if (code[0] === 63) { // ?
                 const help: string[] = [
                     `${chalk.bold("USAGE:")}`,
                     `\t${chalk.bold("HOME")}: enable/disable trading`,
@@ -192,40 +229,59 @@ export default function registerInputHandlers() {
                 ];
 
                 help.reverse().forEach((line, i) => addLogMessage(line));
-            } else if (code[0] === 45) {
+            } else if (code[0] === 45) { // INSERT
                 if (state.selectedRow >= 0) {
                     const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
-                    state.symbols[symbol].sellThreshold = Math.max(state.symbols[symbol].minNotional, state.symbols[symbol].sellThreshold - (state.symbols[symbol].sellThreshold > 10 ? 5 : 1));
+                    state.assets[symbol].sellThreshold = Math.max(state.assets[symbol].minNotional, state.assets[symbol].sellThreshold - (state.assets[symbol].sellThreshold > 10 ? 5 : 1));
                     printSymbol(symbol);
                 }
-            } else if (code[0] === 61) {
+            } else if (code[0] === 61) { // =
                 if (state.selectedRow >= 0) {
                     const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
-                    state.symbols[symbol].sellThreshold = Math.min(state.currencies[symbol], state.symbols[symbol].sellThreshold + (state.symbols[symbol].sellThreshold >= 10 ? 5 : 1));
+                    state.assets[symbol].sellThreshold = Math.min(state.currencies[symbol], state.assets[symbol].sellThreshold + (state.assets[symbol].sellThreshold >= 10 ? 5 : 1));
                     printSymbol(symbol);
                 }
-            } else if (code[0] === 93) {
+            } else if (code[0] === 93) { // ]
                 if (state.selectedRow >= 0) {
                     const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
-                    state.symbols[symbol].buyThreshold = Math.max(state.symbols[symbol].minNotional, state.symbols[symbol].buyThreshold - (state.symbols[symbol].buyThreshold > 10 ? 5 : 1));
+                    state.assets[symbol].buyThreshold = Math.max(state.assets[symbol].minNotional, state.assets[symbol].buyThreshold - (state.assets[symbol].buyThreshold > 10 ? 5 : 1));
                     printSymbol(symbol);
                 }
-            } else if (code[0] === 91) {
+            } else if (code[0] === 91) { // [
                 if (state.selectedRow >= 0) {
                     const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
-                    state.symbols[symbol].buyThreshold = Math.min(state.currencies[symbol], state.symbols[symbol].buyThreshold + (state.symbols[symbol].buyThreshold >= 10 ? 5 : 1));
+                    state.assets[symbol].buyThreshold = Math.min(state.currencies[symbol], state.assets[symbol].buyThreshold + (state.assets[symbol].buyThreshold >= 10 ? 5 : 1));
                     printSymbol(symbol);
                 }
-            } else if (code[0] === 8 || code[0] === 127) {
+            } else if (code[0] === 8 || code[0] === 127) { // BACKSPACE
                 if (state.selectedRow >= 0) {
                     const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
                     if (symbol in state.balances) {
-                        state.currencies[symbol] = state.balances[symbol] * state.symbols[symbol].price;
+                        state.currencies[symbol] = state.balances[symbol] * state.assets[symbol].price;
                     }
                     printSymbol(symbol);
                 }
-            } else if (code[0] > 'A'.charCodeAt(0) && code[0] <= 'z'.charCodeAt(0)) {
+            } else if (code[0] > 'A'.charCodeAt(0) && code[0] <= 'z'.charCodeAt(0)) { // A-Z
                 addLookupChar(String.fromCharCode(code[0]));
+            }
+            else if (code[0] === 155) { // INSERT
+                state.candles.scale = Math.min(state.candles.scales.length - 1, state.candles.scale + 1);
+                state.candles.data = [];
+            }
+            else if (code[0] === 127) { // DELETE
+                state.candles.scale = Math.max(0, state.candles.scale - 1);
+                state.candles.data = [];
+            }
+            else if (cmp([44], code)) { // ,
+                if (state.selectedRow >= 0) {
+                    const asset = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[asset].maxDailyLoss = Math.max(0, state.assets[asset].maxDailyLoss - 5);
+                }
+            } else if (cmp([46], code)) { // .
+                if (state.selectedRow >= 0) {
+                    const asset = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[asset].maxDailyLoss += 5;
+                }
             }
         }
 

@@ -47,6 +47,8 @@ export class Symbol implements Ticker {
 
     showTradeFrames: number = 0;
 
+    orderInProgress: boolean = false;
+
     get lowPrice(): number {
         return parseFloat(this.low);
     }
@@ -138,7 +140,7 @@ export class Symbol implements Ticker {
 
     set interpSpeed(value: number) {
         interpSpeeds[this.symbol] = value;
-        saveConfigFile('interpSpeeds', maxDailyLosses);
+        saveConfigFile('interpSpeeds', interpSpeeds);
     }
 
     update(data: Ticker): void {
@@ -162,7 +164,7 @@ export class Symbol implements Ticker {
 
         const run = async (method: string) => this.indicatorValues[`${method}s` as keyof IndicatorValues] =
             await Promise.all(ranges.map(r => {
-                return (this.indicators[method as keyof Indicators])(this.symbol.replace(/USDT$/, ''), r.interval, r.range);
+                return (this.indicators[method as keyof Indicators])(this.symbol.replace(/USD[TC]$/, ''), r.interval, r.range);
             }));
         try {
             await run('SMA');
