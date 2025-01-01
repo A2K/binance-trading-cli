@@ -49,7 +49,7 @@ export async function updateSymbolTransactions(symbol: string): Promise<void> {
             ) ON CONFLICT DO NOTHING
         `));
 
-        const fromId = trades[trades.length - 1].id;
+        const fromId: number = trades[trades.length - 1].id;
         trades = await getTrades(symbol, fromId);
         if (trades.length === 0 || (trades.length === 1 && trades[0].id === fromId)) {
             break;
