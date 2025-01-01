@@ -1,20 +1,18 @@
-import Binance, { CandleChartInterval_LT, HttpMethod, Order, OrderType } from 'binance-api-node';
+
 import dotenv from 'dotenv';
+dotenv.config();
+
+import { HttpMethod, Order, OrderType } from 'binance-api-node';
 import chalk from 'chalk';
 import cache from 'memory-cache';
 
 import 'source-map-support/register';
-import { RateLimiter } from 'limiter';
 import { addLogMessage } from './ui';
-import { DelayedExecution, formatAssetQuantity, marketCeil, timestampStr } from './utils';
+import { formatAssetQuantity, marketCeil, timestampStr } from './utils';
 import state from './state';
 
-dotenv.config();
-
-const binance = Binance({
-    apiKey: process.env.BINANCE_API_KEY as string,
-    apiSecret: process.env.BINANCE_API_SECRET as string
-});
+import binance, { ThrottledBinanceAPI } from './binance-ext/throttled-binance-api';
+import { StakingAccountAssetResponse, StakingAccountAssetRow } from './binance-ext/simple-earn-api';
 
 type FlexibleProduct = {
     asset: string,
@@ -37,25 +35,9 @@ export async function findFlexibleProduct(asset: string): Promise<FlexibleProduc
         return cached;
     }
 
-    var response: unknown;
+    const list = await binance.simpleEarn.flexibleList({ asset });
 
-    try {
-        await __stakingRateLimiter.removeTokens(1);
-        response = await binance.privateRequest(
-            'GET' as HttpMethod,
-            '/sapi/v1/simple-earn/flexible/list',
-            { asset });
-    } catch (e) {
-        return undefined;
-    }
-
-    if (!response) {
-        return undefined;
-    }
-
-    var products = response['rows' as keyof unknown] as FlexibleProduct[];
-
-    products = products.filter(p => p.asset === asset && p.canPurchase && p.canRedeem && !p.isSoldOut)
+    var products = list.rows.filter(p => p.asset === asset && p.canPurchase && p.canRedeem && !p.isSoldOut)
         .sort((a, b) => parseFloat(b.latestAnnualPercentageRate) - parseFloat(a.latestAnnualPercentageRate));
 
     if (products.length) {
@@ -118,6 +100,8 @@ async function redeemBNSOL(amount: number): Promise<number> {
         return 0;
     }
 
+    clearStakingCache('SOL');
+
     return parseFloat(order.cummulativeQuoteQty);
 }
 
@@ -126,78 +110,76 @@ export async function subscribeFlexibleProduct(asset: string, amount: number): P
         return stakeBNSOL(amount);
     }
 
-    var response: unknown;
-    const autoSubscribe: boolean = false;
-
-    try {
-        const product = await findFlexibleProduct(asset);
-        if (!product) {
-            addLogMessage(chalk.red(`🚫 ${timestampStr()} No flexible product found for ${asset}`));
-            return undefined;
-        }
-        const productId = product.productId;
-        await __stakingRateLimiter.removeTokens(1);
-        const timestamp = Date.now();
-        response = await binance.privateRequest(
-            'POST' as HttpMethod,
-            '/sapi/v1/simple-earn/flexible/subscribe',
-            { productId, amount, autoSubscribe, timestamp });
-    } catch (e) {
-        console.error(e);
+    const product = await findFlexibleProduct(asset);
+    if (!product) {
+        addLogMessage(chalk.red(`🚫 ${timestampStr()} No flexible product found for ${asset}`));
         return undefined;
     }
 
+    const productId = product.productId;
+
+    const response = await binance.simpleEarn.flexibleSubscribe({ productId, amount, autoSubscribe: false });
+
     addLogMessage(`💰 ${timestampStr()} STAKED ${chalk.yellow(formatAssetQuantity(asset, amount))} ${chalk.whiteBright(asset)}`);
 
-    cache.del(`staked-${asset}`);
-    cache.del(`staking-account-${asset}`);
-    cache.del(`staking-account-all`);
+    clearStakingCache(asset);
 
-    return response as FlexibleSubscriptionPurchase;
+    return response;
 }
 
-type StakingAccountAssetRow = {
-    totalAmount: string,
-    latestAnnualPercentageRate: string,
-    asset: string,
-    canRedeem: boolean,
-    collateralAmount: string,
-    productId: string,
-    yesterdayRealTimeRewards: string,
-    cumulativeBonusRewards: string,
-    cumulativeRealTimeRewards: string,
-    cumulativeTotalRewards: string,
-    autoSubscribe: boolean
-};
+class StakingAccount {
 
-type StakingAccountAssetResponse = {
-    total: number,
-    rows: StakingAccountAssetRow[]
-};
+    private data: { [key: string]: StakingAccountAssetResponse } = {};
+    private api: ThrottledBinanceAPI;
 
-const __stakingRateLimiter = new RateLimiter({ tokensPerInterval: 1, interval: 100 });
-export async function getStakingAccount(asset: string | undefined = undefined): Promise<StakingAccountAssetResponse | undefined> {
+    private state: { [key: string]: number } = {};
+
+    constructor(api: ThrottledBinanceAPI) {
+        this.api = api;
+    }
+
+    async sync(): Promise<void> {
+        const data = await this.api.simpleEarn.flexiblePosition({ size: 1000 });
+        this.state = {};
+        for (const row of data.rows)
+        {
+            this.state[row.asset] = (this.state[row.asset] || 0) + parseFloat(row.totalAmount);
+        }
+    }
+
+    async get(asset: string): Promise<number> {
+        return this.state[asset] || 0;
+    }
+
+    async flexiblePosition(asset?: string, size: number = 100) {
+        return this.api.simpleEarn.flexiblePosition({ asset, size });
+    }
+}
+
+export async function getStakingAccount(asset?: string, size: number = 100): Promise<StakingAccountAssetResponse> {
     const cacheKey = `staking-account-${asset || 'all'}`;
     const cached = cache.get(cacheKey);
     if (cached) {
         return cached;
     }
 
-    var response: unknown;
+    const response = await binance.simpleEarn.flexiblePosition(asset ? { asset, size } : { size })
 
-    try {
-        await __stakingRateLimiter.removeTokens(1);
-        const timestamp = Date.now();
-        response = await binance.privateRequest(
-            'GET' as HttpMethod,
-            '/sapi/v1/simple-earn/flexible/position',
-            asset ? { asset, timestamp } : { timestamp, size: 100 });
-    } catch (e) {
-        console.error(e);
-        return undefined;
+    if (asset === undefined) {
+        const perAsset: { [key: string]: StakingAccountAssetRow[] } = {};
+        for (const row of response.rows) {
+            if (!(row.asset in perAsset)) {
+                perAsset[row.asset] = [ row ];
+            } else {
+                perAsset[row.asset].push(row);
+            }
+        }
+        for (const asset of Object.keys(perAsset)) {
+            cache.put(`staking-account-${asset}`, { rows: perAsset[asset] }, 1000 * 60 * 60);
+        }
     }
 
-    return cache.put(cacheKey, response as StakingAccountAssetResponse, 1000 * 60 * 5);
+    return cache.put(cacheKey, response);
 }
 
 async function getStakedBNSOL(): Promise<number> {
@@ -271,16 +253,10 @@ export async function redeemFlexibleProduct(asset: string, amount: number): Prom
         const rowAmount = Math.min(leftToRedeem, parseFloat(row.totalAmount));
 
         try {
-            await __stakingRateLimiter.removeTokens(1);
-            const timestamp = Date.now();
-            const productId = row.productId;
-            response = await binance.privateRequest(
-                'POST' as HttpMethod,
-                '/sapi/v1/simple-earn/flexible/redeem',
-                { productId, asset, timestamp, amount: rowAmount }) as RedeemResponse;
+            response = await binance.simpleEarn.flexibleRedeem({ productId: row.productId, amount });
         } catch (e) {
             console.error(chalk.red(`Failed to redeem ${rowAmount} ${asset}:`), e);
-            return leftToRedeem;
+            break;
         }
 
         leftToRedeem -= rowAmount;
@@ -291,9 +267,7 @@ export async function redeemFlexibleProduct(asset: string, amount: number): Prom
 
     addLogMessage(`💲 ${timestampStr()} UNSTAKED ${chalk.yellow(formatAssetQuantity(asset, amount))} ${chalk.whiteBright(asset)}`);
 
-    cache.del(`staked-${asset}`);
-    cache.del(`staking-account-${asset}`);
-    cache.del(`staking-account-all`);
+    clearStakingCache(asset);
 
     return leftToRedeem;
 }
@@ -320,4 +294,50 @@ export async function subscribeFlexibleProductAllFree(asset: string): Promise<nu
     }
 
     return amountToStake;
+}
+
+export async function getStakingEffectiveAPR(asset: string): Promise<number> {
+    if (asset === 'SOL') {
+        return 0.085;
+    }
+    const cacheKey = `staking-apr-${asset}`;
+    const cached = cache.get(cacheKey);
+    if (typeof cached === 'number') {
+        return cached;
+    }
+
+    const stakedInfo = await getStakingAccount(asset);
+    if (!stakedInfo) {
+        return 0;
+    }
+
+    const totalStaked = stakedInfo.rows.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0);
+    const totalAPR = stakedInfo.rows.reduce((acc, row) =>
+        acc + parseFloat(row.latestAnnualPercentageRate) * parseFloat(row.totalAmount), 0);
+
+    return cache.put(cacheKey, totalStaked ? totalAPR / totalStaked : 0, 1000 * 60 * 60);
+}
+
+export async function getStakingEffectiveAPRAverage(): Promise<number> {
+    const cacheKey = `staking-apr-all`;
+    const cached = cache.get(cacheKey);
+    if (typeof cached === 'number') {
+        return cached;
+    }
+
+    const stakedInfo = await getStakingAccount();
+    if (!stakedInfo) {
+        return 0;
+    }
+
+    const totalStaked = stakedInfo.rows.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0);
+    const totalAPR = stakedInfo.rows.reduce((acc, row) =>
+        acc + parseFloat(row.latestAnnualPercentageRate) * parseFloat(row.totalAmount), 0);
+
+    return cache.put(cacheKey, totalStaked ? totalAPR / totalStaked : 0, 1000 * 60 * 60);
+}
+
+export function clearStakingCache(asset: string): void {
+    cache.del(`staked-${asset}`);
+    cache.keys().filter(k => k.startsWith('readProfits-') || k.startsWith('staking-')).forEach(cache.del);
 }

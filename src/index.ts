@@ -1,8 +1,7 @@
-import Binance from 'binance-api-node';
 import cache from 'memory-cache';
 import dotenv from 'dotenv';
 import state from './state';
-import { addLogMessage, printSymbol, printTrades } from './ui';
+import { addLogMessage, printSymbol, printTrades, printTransactions } from './ui';
 import { pullNewTransactions, readTransactionLog, updateTransactionsForAllSymbols } from './transactions';
 import Symbol from './symbol';
 import tick from './tick';
@@ -10,21 +9,15 @@ import readline from 'readline';
 import 'source-map-support/register';
 import registerInputHandlers from './input';
 import Settings from './settings';
-import { RateLimiter } from 'limiter';
-import { getStakedAssets, getStakingAccount } from './autostaking';
+
+import { clearStakingCache, getStakingAccount } from './autostaking';
 
 dotenv.config();
+import binance from './binance-ext/throttled-binance-api';
+import { bgLerp, lerpChalk, lerpColor, limitIndicator, progressBar, verticalBar } from './utils';
+import chalk from 'chalk';
 
-const binance = Binance({
-    apiKey: process.env.BINANCE_API_KEY as string,
-    apiSecret: process.env.BINANCE_API_SECRET as string
-});
-
-process.stdout.write('\u001B[?25l');
-
-const __stepSizeRateLimiter = new RateLimiter({ tokensPerInterval: 1, interval: 100 });
 async function updateStepSize(symbol: string): Promise<void> {
-    await __stepSizeRateLimiter.removeTokens(1);
     const info1: any = await binance.exchangeInfo({ symbol: `${symbol}${Settings.stableCoin}` });
     for (const s of info1.symbols) {
         if (!s.symbol.endsWith(Settings.stableCoin)) {
@@ -52,15 +45,19 @@ async function updateStepSize(symbol: string): Promise<void> {
     }
 }
 
-binance.accountInfo().then(async accountInfo => {
+binance.init().then(async () => {
+
+    await getStakingAccount();
+
+    const accountInfo = await binance.accountInfo();
 
     const allSymbols: string[] = [...new Set(accountInfo.balances
         .filter(b => parseFloat(b.free) + parseFloat(b.locked) > 0)
         .map(b => b.asset)
-        .concat((await getStakingAccount())!.rows.map(r => r.asset))
+        .concat((await getStakingAccount()).rows.map(r => r.asset))
         .filter(a => a !== Settings.stableCoin)
         .filter(s => !s.startsWith('LD') || s === 'LDO'))
-    ];//.filter(s => !s.startsWith('LD') || s === 'LDO');
+    ].sort();
 
     for (const balance of accountInfo.balances) {
         const value: number = parseFloat(balance.free) + parseFloat(balance.locked);
@@ -76,32 +73,20 @@ binance.accountInfo().then(async accountInfo => {
         if (msg.eventType === 'outboundAccountPosition') {
             for (const balance of msg.balances) {
                 state.balances[balance.asset] = parseFloat(balance.free) + parseFloat(balance.locked);
-                pullNewTransactions(balance.asset).then(() => {
-                    readTransactionLog(undefined, (process.stdout.rows || 120) - Object.keys(state.currencies).length - 1).then(trades => {
-                        for (const trade of trades.reverse()) {
-                            addLogMessage(trade.toString());
-                        }
-                    });
-                })
-                .catch(e => addLogMessage(`Failed to pull new transactions for ${balance.asset}`));
-                cache.del(`staked-${balance.asset}`);
-                cache.del(`staking-account-${balance.asset}`);
-                cache.del(`staking-account-all`);
+                clearStakingCache(balance.asset);
+                await pullNewTransactions(`${balance.asset}${Settings.stableCoin}`);
+                printTransactions(state.selectedRow >= 0 ? Object.keys(state.currencies).sort()[state.selectedRow] : undefined);
             }
         }
     });
 
     registerInputHandlers();
 
-    updateTransactionsForAllSymbols(accountInfo).then(() => {
-        readTransactionLog(undefined, (process.stdout.rows || 120) - Object.keys(state.currencies).length - 1).then(trades => {
-            for (const trade of trades.reverse()) {
-                addLogMessage(trade.toString());
-            }
-        });
-    });
+    updateTransactionsForAllSymbols(accountInfo).then(() => printTransactions(state.selectedRow >= 0 ? Object.keys(state.currencies).sort()[state.selectedRow] : undefined));
 
-    binance.ws.ticker([...allSymbols.sort()].map(k => `${k}${Settings.stableCoin}`), async priceInfo => {
+    process.stdout.write('\u001B[?25l');
+
+    binance.ws.ticker(allSymbols.map(k => `${k}${Settings.stableCoin}`), async priceInfo => {
         const symbol: string = priceInfo.symbol.replace(Settings.stableCoin, '');
         if (symbol === Settings.stableCoin) return;
 
@@ -122,7 +107,7 @@ binance.accountInfo().then(async accountInfo => {
         }
 
         if (symbol in state.currencies) {
-            await tick(priceInfo);
+            tick(priceInfo);
         }
     });
 });
@@ -134,3 +119,20 @@ process.on('exit', () => {
     console.log('Exiting...');
     process.exit();
 });
+
+setInterval(() => {
+
+    const str = [
+        binance.limits.count.concat(binance.limits.order).map(l => {
+            const f = l.current / l.max;
+            return lerpChalk([125, 32, 32], [32, 125, 32], f)(bgLerp([150, 0, 0], [0, 150, 0], f)(verticalBar(l)));
+        }).join(''),
+        binance.limits.weight.map(l => {
+            const f = l.current / l.max;
+            return progressBar(l, 4, lerpColor([155, 0, 0], [0, 155, 0], f), lerpColor([50, 0, 0], [0, 50, 0], f));
+        }).join('')
+    ].join('');
+
+    readline.cursorTo(process.stdout, process.stdout.columns!-7, process.stdout.rows! - 1);
+    process.stdout.write(str);
+}, 16);

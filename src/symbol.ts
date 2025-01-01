@@ -1,5 +1,5 @@
 import { Ticker } from 'binance-api-node';
-import { Settings, thresholds, enabledBuys, enabledSells, maxDailyLosses, interpSpeeds, saveConfigFile } from './settings';
+import { Settings, thresholds, enabledBuys, enabledSells, maxDailyLosses, interpSpeeds, saveConfigFile, getConfig } from './settings';
 import { Indicators } from './indicators';
 
 
@@ -141,6 +141,16 @@ export class Symbol implements Ticker {
     set interpSpeed(value: number) {
         interpSpeeds[this.symbol] = value;
         saveConfigFile('interpSpeeds', interpSpeeds);
+    }
+
+    get staking(): boolean {
+        return getConfig('staking', {})[this.symbol] || false;
+    }
+
+    set staking(value: boolean) {
+        const staking = getConfig('staking', {});
+        staking[this.symbol] = value;
+        saveConfigFile('staking', staking);
     }
 
     update(data: Ticker): void {

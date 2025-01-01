@@ -2,9 +2,9 @@ import readline from 'readline';
 import chalk from 'chalk';
 import Fuse from 'fuse.js';
 import Settings, { saveConfigFile } from './settings';
-import { addLogMessage, printStats, printSymbol, printTrades } from './ui';
+import { addLogMessage, printStats, printSymbol, printTrades, printTransactions } from './ui';
 import state from './state';
-import { redeemFlexibleProduct, redeemFlexibleProductAll, subscribeFlexibleProductAllFree } from './autostaking';
+import { redeemFlexibleProductAll, subscribeFlexibleProductAllFree } from './autostaking';
 
 var lookupStr = '';
 var lookupClearTimeout: NodeJS.Timer | undefined;
@@ -81,7 +81,12 @@ export default function registerInputHandlers() {
                 redeemFlexibleProductAll(asset);
             }
         }
-
+        if (cmp(code, [27, 91, 49, 55, 126])) { // F6 - toggle staking
+            if (state.selectedRow >= 0) {
+                const asset: string = Object.keys(state.currencies).sort()[state.selectedRow];
+                state.assets[asset].staking = !state.assets[asset].staking;
+            }
+        }
         if (code.length >= 3 && code[0] === 27 && code[1] === 91) {
             if (state.selectedRow >= 0) {
                 readline.cursorTo(process.stdout, 0, state.selectedRow);
@@ -283,6 +288,13 @@ export default function registerInputHandlers() {
                     state.assets[asset].maxDailyLoss += 5;
                 }
             }
+        }
+
+        if (lastSelectedRow != state.selectedRow)
+        {
+            printTransactions(state.selectedRow >= 0
+                ? Object.keys(state.currencies).sort()[state.selectedRow]
+                : undefined);
         }
 
         if (state.selectedRow >= 0) {

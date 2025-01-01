@@ -1,14 +1,11 @@
-import Binance, { CandleChartInterval_LT } from 'binance-api-node';
+import { Candle as CandleData, CandleChartInterval_LT, CandleChartResult } from 'binance-api-node';
 import dotenv from 'dotenv';
 import chalk from 'chalk';
 import Settings from './settings';
 
 dotenv.config();
 
-const binance = Binance({
-    apiKey: process.env.BINANCE_API_KEY as string,
-    apiSecret: process.env.BINANCE_API_SECRET as string
-});
+import binance from './binance-ext/throttled-binance-api';
 
 const UNICODE_VOID: string = ' ';
 const UNICODE_BODY: string = '┃';
@@ -27,18 +24,18 @@ const DOWN_W: string[] = ['╵', '│', '╿', '┃'];
 const UP_B: string[] = [' ', ' ', '╻', '┃'];
 const DOWN_B: string[] = [' ', ' ', '╹', '┃'];
 
-export interface CandleData {
-    openTime: number;
-    closeTime: number;
-    open: string;
-    high: string;
-    low: string;
-    close: string;
-    volume: string;
-    trades: number;
-    baseAssetVolume: string;
-    quoteAssetVolume: string;
-}
+// export interface CandleData {
+//     openTime: number;
+//     closeTime: number;
+//     open: string;
+//     high: string;
+//     low: string;
+//     close: string;
+//     volume: string;
+//     trades: number;
+//     baseAssetVolume: string;
+//     quoteAssetVolume: string;
+// }
 
 export class Candle {
     time: { open: Date; close: Date };
@@ -51,7 +48,7 @@ export class Candle {
     baseAssetVolume: number;
     quoteAssetVolume: number;
 
-    constructor(data: CandleData) {
+    constructor(data: CandleChartResult) {
         this.time = {
             open: new Date(data.openTime),
             close: new Date(data.closeTime)

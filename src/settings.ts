@@ -1,7 +1,15 @@
 import fs from 'fs';
 import { DelayedExecution } from './utils';
 
-export type ConfigFile = 'settings' | 'thresholds' | 'enabledBuys' | 'enabledSells' | 'maxDailyLosses' | 'interpSpeeds' | 'currencies';
+export type ConfigFile =
+    'settings' |
+    'thresholds' |
+    'enabledBuys' |
+    'enabledSells' |
+    'maxDailyLosses' |
+    'interpSpeeds' |
+    'currencies' |
+    'staking';
 
 export function getConfig(configFile: ConfigFile, defaultValue: any = {}) {
     try {

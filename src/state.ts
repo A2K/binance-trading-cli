@@ -1,7 +1,6 @@
+import { Candle } from './candles.js';
 import { getConfig } from './settings';
 import Symbol from './symbol';
-
-type CandleData = import('./candles.js').Candle[];
 
 type CandleTimeScale = '1s' | '1m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M';
 
@@ -19,15 +18,13 @@ class State {
         height: number;
         XBase: number;
         scales: CandleTimeScale[];
-        data: CandleData;
-        time: { open: number; close: number };
+        data: Candle[]
     } = {
             scales: ['1s', '1m', '15m', '1h', '4h', '1d', '1w', '1M'],
             scale: 1,
             height: -1,
-            XBase: 102,
-            data: [],
-            time: { open: 0, close: 0 },
+            XBase: 107,
+            data: []
         };
     enableSell: boolean = false;
     enableBuy: boolean = false;

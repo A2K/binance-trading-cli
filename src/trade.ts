@@ -2,6 +2,8 @@
 import { MyTrade } from 'binance-api-node';
 import chalk from 'chalk';
 import { Row } from 'postgres';
+import { formatAssetQuantity, timestampStr, trimTrailingZeroes } from './utils';
+import state from './state';
 
 export class Trade implements MyTrade {
     id: number
@@ -41,7 +43,10 @@ export class Trade implements MyTrade {
         this.price = row.price;
         this.qty = row.qty;
         this.quoteQty = row.quoteQty;
-        this.commission = row.commission;
+        this.commission = trimTrailingZeroes(row.commission.toFixed(12));
+        if (/^0.0+$/.test(this.commission)) {
+            this.commission = '0.0';
+        }
         this.commissionAsset = row.commissionAsset;
         this.isBuyer = row.isBuyer;
         this.isMaker = row.isMaker;
@@ -49,18 +54,9 @@ export class Trade implements MyTrade {
     }
 
     toString(): string {
-        return `${this.isBuyer ? '🪙' : '💵'}` +
-            ` ${this.date.toLocaleDateString("uk-UA", {
-                year: 'numeric',
-                month: 'numeric',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-            })} ` +
+        return `${(this.isBuyer ? '🪙' : '💵')} ${timestampStr(this.date)} ` +
             `${(this.isBuyer ? chalk.redBright : chalk.greenBright)((this.isBuyer ? '-' : '+') + Math.abs(this.quoteQuantity).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
-            `${(this.isBuyer ? chalk.green : chalk.red)((this.isBuyer ? '+' : '-') + Math.abs(this.quantity))} ${chalk.bold(this.symbol.replace(/USD[TC]$/, ''))} at ${chalk.yellowBright(this.price)} ` +
+            `${(this.isBuyer ? chalk.green : chalk.red)((this.isBuyer ? '+' : '-') + Math.abs(this.quantity))} ${chalk.bold(this.symbol)} at ${chalk.yellowBright(this.price)} ` +
             chalk.rgb(125, 125, 125)(`fee ${chalk.rgb(150, 125, 50)(this.commission)} ${chalk.rgb(150, 150, 150)(this.commissionAsset)}`);
     }
 

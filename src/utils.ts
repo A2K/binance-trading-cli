@@ -10,15 +10,15 @@ export const lerpColor = (from: number[], to: number[], alpha: number): number[]
 export const lerpChalk = (from: number[], to: number[], alpha: number): chalk.Chalk => { const v = lerpColor(from, to, alpha); return chalk.rgb(v[0], v[1], v[2]); };
 export const bgLerp = (from: number[], to: number[], alpha: number): chalk.Chalk => { const v = lerpColor(from, to, alpha); return chalk.bgRgb(v[0], v[1], v[2]); };
 
-export function timestampStr(): string {
-  return new Date().toLocaleDateString("uk-UA", {
+export function timestampStr(date: Date = new Date()): string {
+  return date.toLocaleDateString("uk-UA", {
       year: 'numeric',
       month: 'numeric',
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      timeZone: process.env.TIMEZONE || Intl.DateTimeFormat().resolvedOptions().timeZone
   });
 }
 
@@ -50,7 +50,10 @@ export async function getAssetBallance(asset: string): Promise<number> {
 }
 
 export function formatAssetQuantity(asset: string, quantity: number): string {
-  return quantity.toFixed(Math.max(0, !(asset in state.assets) || typeof(state.assets[asset].stepSize) !== 'number' || state.assets[asset].stepSize === 0 ? 8 : Math.log10(1.0 / state.assets[asset].stepSize)));
+  const precision = (asset in state.assets)
+    ? clamp(Math.ceil(Math.log10(1.0 / Math.min(state.assets[asset].stepSize, state.assets[asset].minNotional))), 0, 8)
+    : 8 /* default */;
+  return trimTrailingZeroes(quantity.toFixed(precision));
 }
 
 export function marketCeil(asset: string, quantity: number): number {
@@ -61,4 +64,48 @@ export function marketCeil(asset: string, quantity: number): number {
 export function marketRound(asset: string, quantity: number): number {
   const { stepSize } = state.assets[asset];
   return Math.round(quantity / stepSize) * stepSize;
+}
+
+export function limitIndicator(width: number, value: number) {
+  const index = Math.floor(value * width);
+  return '▁▂▃▄▅▆▇█'[index] + '_'.repeat(width - index - 1);
+}
+
+export function progressBar(limit: { current: number, max: number }, width: number = 10, fgColor=[0, 255, 0], bgColor=[0, 100, 0]): string {
+  const symbols = ['▉', '▊', '▋', '▌', '▍', '▎', '▏', ' '];
+  const fraction = limit.current / limit.max;
+  const fg = chalk.rgb(fgColor[0], fgColor[1], fgColor[2]);
+  const fgbg = chalk.bgRgb(fgColor[0], fgColor[1], fgColor[2]);
+  const bg = chalk.bgRgb(bgColor[0], bgColor[1], bgColor[2]);
+  return fg(fgbg(symbols[0].repeat(Math.floor(fraction * width)))) +
+      fg(bg(fraction >= 1.0 ? '' : symbols[Math.round((1.0 - width * fraction % 1) * (symbols.length - 1))])) +
+      bg(symbols[symbols.length - 1].repeat(Math.max(0, width - 1 - Math.floor(fraction * width))));
+}
+
+export function verticalBar(limit: { current: number, max: number }): string {
+  const symbols = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+  return symbols[limit.max === 0 ? 0 : Math.floor(clamp(limit.current / limit.max) * (symbols.length - 1))];
+}
+
+export function progressBarText(limit: { current: number, max: number }, width: number = 10, text: string, color=[255, 255, 255], bgColor=[100, 100, 100], textColor=[255, 255, 255], invTextColor=[0, 0, 0]) {
+  const symbols = ['▉', '▊', '▋', '▌', '▍', '▎', '▏', ' '];
+  const fraction = clamp(limit.current / limit.max);
+  const fg = chalk.rgb(color[0], color[1], color[2]);
+  const fgbg = chalk.bgRgb(color[0], color[1], color[2]);
+  const bg = chalk.bgRgb(bgColor[0], bgColor[1], bgColor[2]);
+
+  const fgText = chalk.rgb(textColor[0], textColor[1], textColor[2]);
+  const fgTextInv = chalk.rgb(invTextColor[0], invTextColor[1], invTextColor[2]);
+
+  if (text.length < width * fraction) {
+      return fgTextInv(fgbg(text)) + fg(fgbg(symbols[0].repeat(Math.floor(fraction * width) - text.length))) +
+          fg(bg(fraction >= 1.0 ? '' : symbols[Math.round((1.0 - width * fraction % 1) * (symbols.length - 1))])) +
+          bg(symbols[symbols.length - 1].repeat(Math.max(0, width - 1 - Math.floor(fraction * width))));
+  }
+
+  return fgTextInv(fgbg(text.slice(0, Math.round(width * fraction)))) + fgText(bg(text.slice(Math.round(width * fraction))))
+      + bg(symbols[symbols.length - 1].repeat(Math.max(0, width - text.length)));
+}
+export function trimTrailingZeroes(value: string): string {
+  return value.replace(/(\.\d+)(?<!0)0+/, '$1');
 }
