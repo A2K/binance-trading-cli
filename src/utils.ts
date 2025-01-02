@@ -51,9 +51,9 @@ export async function getAssetBallance(asset: string): Promise<number> {
 
 export function formatAssetQuantity(asset: string, quantity: number): string {
   const precision = (asset in state.assets)
-    ? clamp(Math.ceil(Math.log10(1.0 / Math.min(state.assets[asset].stepSize, state.assets[asset].minNotional))), 0, 8)
+    ? clamp(Math.ceil(Math.log10(1.0 / state.assets[asset].stepSize)), 0, 8)
     : 8 /* default */;
-  return trimTrailingZeroes(quantity.toFixed(precision));
+  return trimTrailingZeroes((quantity || 0).toFixed(precision));
 }
 
 export function marketCeil(asset: string, quantity: number): number {
@@ -109,3 +109,5 @@ export function progressBarText(limit: { current: number, max: number }, width: 
 export function trimTrailingZeroes(value: string): string {
   return value.replace(/(\.\d+)(?<!0)0+/, '$1');
 }
+
+['○', '◔', '◑', '◕', '●'];

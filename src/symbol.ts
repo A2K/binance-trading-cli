@@ -158,6 +158,7 @@ export class Symbol implements Ticker {
     }
 
     async updateIndicators(): Promise<void> {
+        /*
         const ranges = [{
             interval: '1m',
             range: 60
@@ -173,8 +174,8 @@ export class Symbol implements Ticker {
         }];
 
         const run = async (method: string) => this.indicatorValues[`${method}s` as keyof IndicatorValues] =
-            await Promise.all(ranges.map(r => {
-                return (this.indicators[method as keyof Indicators])(this.symbol.replace(/USD[TC]$/, ''), r.interval, r.range);
+            await Promise.all(ranges.map(async r => {
+                return (await (this.indicators[method as keyof Indicators])(this.symbol.replace(/USD[TC]$/, ''), r.interval, r.range)) || 0;
             }));
         try {
             await run('SMA');
@@ -182,6 +183,7 @@ export class Symbol implements Ticker {
         } catch (e) {
             console.error(e);
         }
+        */
     }
 }
 

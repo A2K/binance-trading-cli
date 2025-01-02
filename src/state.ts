@@ -1,4 +1,4 @@
-import { Candle } from './candles.js';
+import { Candle, LiveCandleData } from './candles.js';
 import { getConfig } from './settings';
 import Symbol from './symbol';
 
@@ -18,13 +18,12 @@ class State {
         height: number;
         XBase: number;
         scales: CandleTimeScale[];
-        data: Candle[]
+        data?: LiveCandleData
     } = {
             scales: ['1s', '1m', '15m', '1h', '4h', '1d', '1w', '1M'],
             scale: 1,
             height: -1,
-            XBase: 107,
-            data: []
+            XBase: 107
         };
     enableSell: boolean = false;
     enableBuy: boolean = false;

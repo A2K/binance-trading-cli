@@ -1,7 +1,8 @@
-import { Candle as CandleData, CandleChartInterval_LT, CandleChartResult } from 'binance-api-node';
+import Binance, { Candle as CandleData, CandleChartInterval_LT, CandleChartResult, ReconnectingWebSocketHandler } from 'binance-api-node';
 import dotenv from 'dotenv';
 import chalk from 'chalk';
 import Settings from './settings';
+import { WebsocketAPI } from '@binance/connector-typescript';
 
 dotenv.config();
 
@@ -130,6 +131,55 @@ export function renderCandles(candles: Candle[], height: number): { rows: string
 
 export async function getAndRenderCandles(symbol: string, interval: CandleChartInterval_LT, width: number, height: number): Promise<string[]> {
     return renderCandles(await getCandles(symbol, interval, width), height).rows;
+}
+
+export class LiveCandleData {
+    data: Candle[];
+    private interval: CandleChartInterval_LT;
+    private symbol: string;
+    private currency: string;
+    private width: number;
+
+    get length(): number {
+        return this.data ? this.data.length : this.width;
+    }
+
+    api: import("binance-api-node").Binance;
+    private socketHandle?: ReconnectingWebSocketHandler;
+
+    constructor(symbol: string, currency: string, interval: CandleChartInterval_LT, width: number, autoInit = true) {
+        this.data = [];
+        this.interval = interval;
+        this.symbol = symbol;
+        this.currency = currency;
+        this.width = width;
+        this.api = Binance({ apiKey: process.env.BINANCE_API_KEY, apiSecret: process.env.BINANCE_API_SECRET });
+        if (autoInit) this.init();
+    }
+
+    async init() {
+        if (this.socketHandle) {
+            this.api = Binance({ apiKey: process.env.BINANCE_API_KEY, apiSecret: process.env.BINANCE_API_SECRET });
+            delete this.socketHandle;
+        }
+
+        this.data = (await binance.candles({
+            symbol: `${this.symbol}${this.currency}`,
+            interval: this.interval,
+            limit: this.width
+        })).map(c => new Candle(c));
+
+        this.socketHandle = this.api.ws.candles(`${this.symbol}${this.currency}`, this.interval, (candle) => {
+            if (this.data.length > 0 && candle.startTime === this.data[this.data.length - 1].time.open.getTime()) {
+                this.data[this.data.length - 1].update(new Date(candle.closeTime), parseFloat(candle.close));
+            } else {
+                this.data.push(new Candle({ ...candle, openTime: candle.startTime, baseAssetVolume: candle.volume, quoteAssetVolume: candle.quoteVolume }));
+                while (this.data.length > this.width) {
+                    this.data.shift();
+                }
+            }
+        });
+    }
 }
 
 export default {

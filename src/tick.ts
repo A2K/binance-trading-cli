@@ -9,6 +9,7 @@ import { readProfits } from './transactions';
 import { Ticker } from 'binance-api-node';
 import { clearStakingCache } from './autostaking';
 
+var __calculatingIndicators = false;
 export async function tick(priceInfo: Ticker): Promise<void> {
     const symbol = priceInfo.symbol.replace(/USD[CT]$/, '');
     const time = priceInfo.eventTime;
@@ -22,9 +23,12 @@ export async function tick(priceInfo: Ticker): Promise<void> {
 
     const isSelected: boolean = Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow;
 
-    if (isSelected && state.candles.data.length) {
-        state.candles.data[state.candles.data.length - 1].update(new Date(time), state.assets[symbol].price);
-        state.assets[symbol].updateIndicators();
+    if (isSelected && state.candles.data?.length) {
+        state.candles.data.data[state.candles.data?.length - 1].update(new Date(time), state.assets[symbol].price);
+        if (!__calculatingIndicators) {
+            __calculatingIndicators = true;
+            state.assets[symbol].updateIndicators().then(() => __calculatingIndicators = false);
+        }
     }
 
     const currentPrice: number = state.assets[symbol].price;
@@ -82,16 +86,12 @@ export async function tick(priceInfo: Ticker): Promise<void> {
                         return;
                     }
 
-                    state.assets[symbol].orderInProgress = true;
                     try {
+                        state.assets[symbol].orderInProgress = true;
                         await order(symbol, quantity);
                     } finally {
                         state.assets[symbol].orderInProgress = false;
                     }
-
-                    clearStakingCache(symbol);
-
-                    state.deltas[symbol] = 0;
 
                 } else if (forceTrade) {
                     if (Math.abs(quantity * state.assets[symbol].price) < state.assets[symbol].minNotional) {

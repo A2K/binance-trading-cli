@@ -3,11 +3,13 @@ import chalk from 'chalk';
 import state from './state';
 import Settings from './settings';
 import readline from 'readline';
-import candles from './candles';
-import { bgLerp, lerpColor, lerpChalk, clamp, formatFloat, getAssetBallance, formatAssetQuantity, progressBarText, verticalBar } from './utils';
+import candles, { Candle, LiveCandleData } from './candles';
+import { bgLerp, lerpColor, lerpChalk, clamp, formatFloat, getAssetBallance, formatAssetQuantity, progressBarText, verticalBar, trimTrailingZeroes } from './utils';
 import { readProfits, readTransactionLog } from './transactions';
 import { CandleChartInterval_LT } from 'binance-api-node';
 import { getStakedQuantity, getStakingEffectiveAPR, getStakingEffectiveAPRAverage } from './autostaking';
+import { getLiveIndicator, LiveOHLCVHistory } from './indicators';
+import { sma, ema, rsi, stochasticrsi, getDetachSourceFromOHLCV } from 'trading-indicator';
 
 var logMessages: string[] = [];
 
@@ -180,7 +182,7 @@ export async function printSymbol(symbol: string): Promise<void> {
     }
 
     if (Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow) {
-        await drawCandles(symbol);
+        await drawCandles(symbol, Settings.stableCoin);
     }
 }
 
@@ -228,28 +230,36 @@ export const printStats = async (symbol: string, deltaPrice?: number): Promise<v
 }
 
 var __drawCandlesCallCounter: number = 0;
-export async function drawCandles(symbol: string): Promise<void> {
+export async function drawCandles(symbol: string, currency: string = 'USDT'): Promise<void> {
     const callId = ++__drawCandlesCallCounter;
     const candlesX: number = Settings.showTime ? state.candles.XBase + 10 : state.candles.XBase - 10;
     const candlesWidth: number = (process.stdout.columns || 120) - candlesX;
     state.candles.height = Math.round(20 / 80 * candlesWidth);
 
-    const lastCandleTime: Date = state.candles.data.length
-        ? state.candles.data[state.candles.data.length - 1].time.open
+    const lastCandleTime: Date = state.candles.data?.length
+        ? state.candles.data.data[state.candles.data.length - 1].time.open
         : new Date(0);
-    if (state.candles.data.length === 0 ||
+    if (state.candles.data?.length === 0 ||
         state.candles.scale === 0 ||
         (state.candles.scale === 1 && lastCandleTime.getMinutes() !== new Date().getMinutes()) ||
         (state.candles.scale === 2 && lastCandleTime.getMinutes() !== Math.floor(new Date().getMinutes() / 15) * 15) ||
         (state.candles.scale >= 3 && lastCandleTime.getHours() !== new Date().getHours())
     ) {
-        state.candles.data = await candles.getCandles(symbol, state.candles.scales[state.candles.scale] as CandleChartInterval_LT, candlesWidth);
+        state.candles.data = new LiveCandleData(symbol, currency,
+            state.candles.scales[state.candles.scale] as CandleChartInterval_LT,
+            candlesWidth, false);
+        await state.candles.data.init();
+        // state.candles.data = await candles.getCandles(symbol, state.candles.scales[state.candles.scale] as CandleChartInterval_LT, candlesWidth);
         if (callId !== __drawCandlesCallCounter) {
             return;
         }
     }
 
-    const { rows, min, max } = await candles.renderCandles(state.candles.data, state.candles.height);
+    const candleData: Candle[] = state.candles.data?.data || [];
+    if (candleData.length === 0) {
+        return;
+    }
+    const { rows, min, max } = await candles.renderCandles(candleData, state.candles.height);
     const minValue: number = min;
     const maxValue: number = max;
     rows.forEach((row: string, i: number) => {
@@ -270,17 +280,118 @@ export async function drawCandles(symbol: string): Promise<void> {
     readline.clearLine(process.stdout, 1);
     const isSelected: boolean = Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow;
 
+    const indicatorsOffset = 0;
     if (isSelected && state.assets[symbol].indicatorValues.SMAs) {
-        readline.cursorTo(process.stdout, candlesX, state.candles.height + 1);
-        process.stdout.write(`     SMA ${state.assets[symbol].indicatorValues.SMAs.map(s => {
-            if (isNaN(s)) return '';
-            let diff: number = (s - state.assets[symbol].price) / state.assets[symbol].price * 100;
-            diff = Math.min(1.0, Math.max(-1.0, diff));
-            return (diff > 0 ? bgLerp([0, 0, 0], [255, 0, 0], diff) : bgLerp([0, 0, 0], [0, 255, 0], -diff))((Math.abs(diff) < 0.5 ? chalk.white : chalk.black)(s ? s.toPrecision(8) : s));
-        }).join(' ')} `);
-        readline.clearLine(process.stdout, 1);
-    }
 
+        const formatIndicator = (symbol: string, value: number): string => {
+            if (isNaN(value)) {
+                return ' '.repeat(7);
+            }
+            value = value || 0;
+            let diff: number = (value - state.assets[symbol].price) / state.assets[symbol].price * 100;
+            diff = Math.min(1.0, Math.max(-1.0, diff / 10));
+            return (diff > 0 ? bgLerp([0, 0, 0], [255, 0, 0], diff) : bgLerp([0, 0, 0], [0, 255, 0], -diff))((Math.abs(diff) < 0.5 ? chalk.white : chalk.black)(((value > state.assets[symbol].price ? '+' : '') + ((value - state.assets[symbol].price) / state.assets[symbol].price * 100).toFixed(2) + '%').padStart(7))) ;
+        }
+
+        const formatRsiIndicator = (s: number): string => {
+            if (isNaN(s)) {
+                return '   '
+            }
+            return s ? lerpChalk(lerpColor([200, 200, 200], [255, 125, 125], s / 50), lerpColor([200, 200, 200], [125, 255, 125], (s - 50) / 50), s < 50 ? 0 : 1)(s.toFixed(0).padStart(3)) : '   ';
+        }
+
+        const makeSMA = (period: string) => getLiveIndicator('SMA', `${symbol}${Settings.stableCoin}`, period,
+                (history: LiveOHLCVHistory): Promise<number> =>
+                    sma(8, 'close', history.data)
+                    .then((res: number[]) => res && res.length ? res[res.length - 1] : NaN));
+
+        const makeEMA = (period: string) => getLiveIndicator('EMA', `${symbol}${Settings.stableCoin}`, period,
+            (history: LiveOHLCVHistory): Promise<number> =>
+                ema(8, 'close', history.data)
+                    .then((res: number[]) => res && res.length ? res[res.length - 1] : NaN));
+
+        const makeRSI = (period: string) => getLiveIndicator('RSI', `${symbol}${Settings.stableCoin}`, period,
+            (history: LiveOHLCVHistory): Promise<number> =>
+                rsi(8, 'close', history.data)
+                    .then((res: number[]) => res && res.length ? res[res.length - 1] : NaN));
+        const makeStRSI = (period: string) => getLiveIndicator('stRSI', `${symbol}${Settings.stableCoin}`, period,
+            (history: LiveOHLCVHistory): Promise<number> =>
+                stochasticrsi(8, 8, 8, 8, 'close', history.data)
+                    .then((res: any) => res && res.length ? res[res.length - 1].stochRSI : NaN));
+
+        const indicatorPeriods = ['1h', '1d', '1w', '1M'];
+        const indicators = {
+            SMA: await Promise.all(indicatorPeriods.map(p => makeSMA(p))),
+            EMA: await Promise.all(indicatorPeriods.map(p => makeEMA(p))),
+            RSI: await Promise.all(indicatorPeriods.map(p => makeRSI(p))),
+            stRSI: await Promise.all(indicatorPeriods.map(p => makeStRSI(p)))
+        };
+
+        readline.cursorTo(process.stdout, candlesX, state.candles.height + indicatorsOffset + 2);
+        const avgSMA = indicators.SMA.reduce((acc, x) => acc + (x.value || 0), 0) / indicators.SMA.length;
+        const avgSMAcurrent = clamp(state.assets[symbol].price * 0.2 - Math.max(0, avgSMA - state.assets[symbol].price + state.assets[symbol].price * 0.1));
+        const SMAratio = avgSMAcurrent / (state.assets[symbol].price * 0.2);
+        const SMAsymbol = chalk.bgGray(lerpChalk([255, 0, 0], [0, 255, 0], SMAratio)(verticalBar({
+            current: avgSMAcurrent,
+            max: state.assets[symbol].price * 0.2
+        })));
+
+        const avgEMA = indicators.EMA.reduce((acc, x) => acc + (x.value || 0), 0) / indicators.EMA.length;
+        const avgEMAcurrent = clamp(state.assets[symbol].price * 0.2 - Math.max(0, avgEMA - state.assets[symbol].price + state.assets[symbol].price * 0.1));
+        const EMAratio = avgEMAcurrent / (state.assets[symbol].price * 0.2);
+        const EMAsymbol = chalk.bgGray(lerpChalk([255, 0, 0], [0, 255, 0], EMAratio)(verticalBar({
+            current: avgEMAcurrent,
+            max: state.assets[symbol].price * 0.2
+        })));
+
+        const RSIsymbol = chalk.bgGray(lerpChalk([255, 0, 0], [0, 255, 0], indicators.RSI.reduce((acc, x) => acc + (x.value || 0), 0) / indicators.RSI.length / 100)(verticalBar({
+            current: indicators.RSI.reduce((acc, x) => acc + (x.value || 0), 0) / indicators.RSI.length,
+            max: 100
+        })));
+
+        const stRSIsymbol = chalk.bgGray(lerpChalk([255, 0, 0], [0, 255, 0], indicators.stRSI.reduce((acc, x) => acc + (x.value || 0), 0) / indicators.stRSI.length / 100)(verticalBar({
+            current: indicators.stRSI.reduce((acc, x) => acc + (x.value || 0), 0) / indicators.stRSI.length,
+            max: 100
+        })));
+        process.stdout.write(`   SMA${SMAsymbol} ` +
+            `${formatIndicator(symbol, (await makeSMA('1h')).value)} ` +
+            `${formatIndicator(symbol, (await makeSMA('1d')).value)} ` +
+            `${formatIndicator(symbol, (await makeSMA('1w')).value)} ` +
+            `${formatIndicator(symbol, (await makeSMA('1M')).value)}`);
+        readline.clearLine(process.stdout, 1);
+
+        readline.cursorTo(process.stdout, candlesX, state.candles.height + indicatorsOffset + 3);
+        process.stdout.write(`   EMA${EMAsymbol} ` +
+            `${formatIndicator(symbol, (await makeEMA('1h')).value)} ` +
+            `${formatIndicator(symbol, (await makeEMA('1d')).value)} ` +
+            `${formatIndicator(symbol, (await makeEMA('1w')).value)} ` +
+            `${formatIndicator(symbol, (await makeEMA('1M')).value)}`);
+        readline.clearLine(process.stdout, 1);
+
+        readline.cursorTo(process.stdout, candlesX, state.candles.height + indicatorsOffset + 4);
+        process.stdout.write(`   RSI${RSIsymbol} ` +
+            `${formatRsiIndicator((await makeRSI('1h')).value)} ` +
+            `${formatRsiIndicator((await makeRSI('1d')).value)} ` +
+            `${formatRsiIndicator((await makeRSI('1w')).value)} ` +
+            `${formatRsiIndicator((await makeRSI('1M')).value)}`);
+        readline.clearLine(process.stdout, 1);
+
+        readline.cursorTo(process.stdout, candlesX, state.candles.height + indicatorsOffset + 5);
+        process.stdout.write(` stRSI${stRSIsymbol} ` +
+            `${formatRsiIndicator((await makeStRSI('1h')).value)} ` +
+            `${formatRsiIndicator((await makeStRSI('1d')).value)} ` +
+            `${formatRsiIndicator((await makeStRSI('1w')).value)} ` +
+            `${formatRsiIndicator((await makeStRSI('1M')).value)}`);
+        readline.clearLine(process.stdout, 1);
+
+        // process.stdout.write(`     SMA ${state.assets[symbol].indicatorValues.SMAs.map(s => {
+        //     if (isNaN(s)) return '';
+        //     let diff: number = (s - state.assets[symbol].price) / state.assets[symbol].price * 100;
+        //     diff = Math.min(1.0, Math.max(-1.0, diff));
+        //     return (diff > 0 ? bgLerp([0, 0, 0], [255, 0, 0], diff) : bgLerp([0, 0, 0], [0, 255, 0], -diff))((Math.abs(diff) < 0.5 ? chalk.white : chalk.black)(s ? s.toPrecision(8) : s));
+        // }).join(' ')} `);
+    }
+/*
     if (isSelected && state.assets[symbol].indicatorValues.EMAs) {
         readline.cursorTo(process.stdout, candlesX, state.candles.height + 2);
         process.stdout.write(`     EMA ${state.assets[symbol].indicatorValues.EMAs.map(s => {
@@ -306,45 +417,43 @@ export async function drawCandles(symbol: string): Promise<void> {
                 (('' + Math.round(s)).padStart(3))).join(' ')} `);
         readline.clearLine(process.stdout, 1);
     }
+    */
+
+    const indicatorsOffser2 = indicatorsOffset + 6;
+
     if (isSelected) {
-        const width: number = 30;
-        readline.cursorTo(process.stdout, candlesX, state.candles.height + 5);
-        readline.clearLine(process.stdout, 1);
-        readline.cursorTo(process.stdout, candlesX, state.candles.height + 6);
-        process.stdout.write('    ' + 'min');
-        readline.cursorTo(process.stdout, candlesX + width * 0.5 + '    '.length, state.candles.height + 6);
-        process.stdout.write('max'.padStart(width * 0.5));
-        readline.cursorTo(process.stdout, candlesX + width * 0.5 - 1 + '    '.length, state.candles.height + 6);
-        process.stdout.write('24h');
-        readline.cursorTo(process.stdout, candlesX, state.candles.height + 7);
+        const width: number = 20;
+        readline.cursorTo(process.stdout, candlesX, state.candles.height);
         const progress: number = clamp((state.assets[symbol].price - state.assets[symbol].lowPrice) / (state.assets[symbol].highPrice - state.assets[symbol].lowPrice));
 
         process.stdout.write('    ' + lerpChalk([255, 0, 0], [0, 255, 0], progress)('■'.repeat(Math.round(progress * width))) +
             chalk.gray('□'.repeat(Math.round((1.0 - progress) * width))));
     }
     if (isSelected) {
-        const width: number = 26;
-        readline.cursorTo(process.stdout, candlesX, state.candles.height + 10);
-        readline.clearLine(process.stdout, 1);
+        const width: number = 20;
+        // readline.cursorTo(process.stdout, candlesX, state.candles.height + indicatorsOffser2 + 4);
+        // readline.clearLine(process.stdout, 1);
 
         const halfWidth: number = Math.floor(width / 2);
         const velocity: number = state.velocities[symbol] || 0;
         const alpha: number = Math.floor(Math.abs(velocity * width * 10000));
-        process.stdout.write('      ');
+        // process.stdout.write('      ');
+        var speedStr = '';
         if (state.velocities[symbol] > 0) {
-            process.stdout.write(chalk.white('─'.repeat(halfWidth)));
-            process.stdout.write(chalk.white('┼'));
+            speedStr += chalk.white('─'.repeat(halfWidth));
+            speedStr += chalk.white('┼');
         } else {
-            process.stdout.write(chalk.white('─'.repeat(Math.max(0, halfWidth - alpha))));
+            speedStr += chalk.white('─'.repeat(Math.max(0, halfWidth - alpha)));
         }
-        process.stdout.write((velocity > 0 ? chalk.green : chalk.red)('■'.repeat(Math.min(halfWidth, alpha))));
+        speedStr += (velocity > 0 ? chalk.green : chalk.red)('■'.repeat(Math.min(halfWidth, alpha)));
         if (state.velocities[symbol] < 0) {
-            process.stdout.write(chalk.white('┼'));
-            process.stdout.write(chalk.white('─'.repeat(halfWidth)));
+            speedStr += chalk.white('┼');
+            speedStr += chalk.white('─'.repeat(halfWidth));
         } else {
-            process.stdout.write(chalk.white('─'.repeat(Math.max(0, halfWidth - alpha))));
+            speedStr += chalk.white('─'.repeat(Math.max(0, halfWidth - alpha)));
         }
-        readline.cursorTo(process.stdout, candlesX, state.candles.height + 11);
+        readline.cursorTo(process.stdout, candlesX + 30, state.candles.height);
+        process.stdout.write(speedStr);
     }
 }
 

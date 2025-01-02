@@ -2,7 +2,7 @@ import readline from 'readline';
 import chalk from 'chalk';
 import Fuse from 'fuse.js';
 import Settings, { saveConfigFile } from './settings';
-import { addLogMessage, printStats, printSymbol, printTrades, printTransactions } from './ui';
+import { addLogMessage, drawCandles, printStats, printSymbol, printTrades, printTransactions } from './ui';
 import state from './state';
 import { redeemFlexibleProductAll, subscribeFlexibleProductAllFree } from './autostaking';
 
@@ -159,12 +159,14 @@ export default function registerInputHandlers() {
             } else if (code[2] === 51) {
                 if (code[3] === 56 || code[3] === 126) { // INSERT
                     state.candles.scale = Math.min(state.candles.scales.length - 1, state.candles.scale + 1);
-                    state.candles.data = [];
+                    delete state.candles.data;
+                    drawCandles(Object.keys(state.currencies).sort()[state.selectedRow]);
                 }
             } else if (code[2] === 50) {
                 if (code[3] === 57 || code[3] === 126) { // DELETE
                     state.candles.scale = Math.max(0, state.candles.scale - 1);
-                    state.candles.data = [];
+                    delete state.candles.data;
+                    drawCandles(Object.keys(state.currencies).sort()[state.selectedRow]);
                 }
             }
         } else if (code.length >= 3 && code[0] === 27 && code[1] === 79) {
@@ -184,10 +186,10 @@ export default function registerInputHandlers() {
                 }
             } else if (code[2] === 82) { // F3
                 state.candles.scale = Math.min(state.candles.scales.length - 1, state.candles.scale + 1);
-                state.candles.data = [];
+                delete state.candles.data;
             } else if (code[2] === 83) { // F4
                 state.candles.scale = Math.max(0, state.candles.scale - 1);
-                state.candles.data = [];
+                delete state.candles.data;
             }
         } else if (code.length === 1) {
             if (code[0] === 27) { // ESC
@@ -271,11 +273,11 @@ export default function registerInputHandlers() {
             }
             else if (code[0] === 155) { // INSERT
                 state.candles.scale = Math.min(state.candles.scales.length - 1, state.candles.scale + 1);
-                state.candles.data = [];
+                delete state.candles.data;
             }
             else if (code[0] === 127) { // DELETE
                 state.candles.scale = Math.max(0, state.candles.scale - 1);
-                state.candles.data = [];
+                delete state.candles.data;
             }
             else if (cmp([44], code)) { // ,
                 if (state.selectedRow >= 0) {
@@ -301,7 +303,7 @@ export default function registerInputHandlers() {
             printStats(Object.keys(state.currencies).sort()[state.selectedRow]);
         }
         if (lastSelectedRow >= 0 && lastSelectedRow != state.selectedRow) {
-            state.candles.data = [];
+            delete state.candles.data;
             printSymbol(Object.keys(state.currencies).sort()[lastSelectedRow]);
         }
 
