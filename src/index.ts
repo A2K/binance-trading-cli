@@ -139,9 +139,7 @@ async function drawIndicators() {
     __drawIndicators_lastCall = now;
 ``
     const str = circleIndicator({
-        current: binance.simpleEarn.__flexibleRedeemRateLimiter.getTokensRemaining(), max: 1
-    }) + circleIndicator({
-        current: binance.simpleEarn.__flexibleSubscribeRateLimiter.getTokensRemaining(), max: 1
+        current: binance.simpleEarn.__flexibleRateLimiter.getTokensRemaining(), max: 1
     }) + [
         binance.limits.count.concat(binance.limits.order).map(l => {
             const f = l.current / l.max;
@@ -151,7 +149,7 @@ async function drawIndicators() {
             const f = l.current / l.max;
             return progressBar(l, 4, lerpColor([155, 0, 0], [0, 155, 0], f), lerpColor([50, 0, 0], [0, 50, 0], f));
         }).join('')
-    ].join('');
+    ].join(' ');
 
     readline.cursorTo(process.stdout, process.stdout.columns!-9, process.stdout.rows! - 1);
     process.stdout.write(str);

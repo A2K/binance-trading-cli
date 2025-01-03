@@ -43,9 +43,12 @@ import { OHLCV } from '../indicators';
 import { Candle, renderCandles } from '../candles';
 import chalk from 'chalk';
 import { clamp } from '../utils';
+import { refreshMaterializedViews } from '../transactions';
 
 // create a simple feed-forward neural network with backpropagation
 async function main() {
+    await refreshMaterializedViews();
+    process.exit(0);
     // const net = new brain.NeuralNetwork(config);
     const net = new brain.NeuralNetwork(config);
     const net2 = new brain.NeuralNetwork(config2);

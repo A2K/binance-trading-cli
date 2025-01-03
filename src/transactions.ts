@@ -16,6 +16,8 @@ const sql = postgres({
     database: 'transactions'
 });
 
+sql`SET client_min_messages TO WARNING;`
+
 import binance from './binance-ext/throttled-binance-api';
 
 async function getTrades(symbol: string, fromId: number = 0): Promise<MyTrade[]> {
@@ -193,10 +195,13 @@ export async function updateTransactionsForAllSymbols(accountInfo: Account | nul
 }
 
 export async function refreshMaterializedViews() {
-    await Promise.all([
-        sql`CALL refresh_continuous_aggregate('PNL_Day', NULL, NULL);`,
-        sql`CALL refresh_continuous_aggregate('PNL_Week', NULL, NULL);`,
-        sql`CALL refresh_continuous_aggregate('PNL_Month', NULL, NULL);`,
-        sql`CALL refresh_continuous_aggregate('PNL_AllTime', NULL, NULL);`
-    ])
+    try {
+        await Promise.all([
+            sql`SET client_min_messages TO WARNING; CALL refresh_continuous_aggregate('PNL_Day', NULL, NULL);`,
+            sql`SET client_min_messages TO WARNING; CALL refresh_continuous_aggregate('PNL_Week', NULL, NULL);`,
+            sql`SET client_min_messages TO WARNING; CALL refresh_continuous_aggregate('PNL_Month', NULL, NULL);`,
+            sql`SET client_min_messages TO WARNING; CALL refresh_continuous_aggregate('PNL_AllTime', NULL, NULL);`
+        ])
+    } catch (e) {
+    }
 }

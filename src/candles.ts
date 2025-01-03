@@ -2,7 +2,6 @@ import Binance, { Candle as CandleData, CandleChartInterval_LT, CandleChartResul
 import dotenv from 'dotenv';
 import chalk from 'chalk';
 import Settings from './settings';
-import { WebsocketAPI } from '@binance/connector-typescript';
 
 dotenv.config();
 
