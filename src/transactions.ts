@@ -104,8 +104,6 @@ export async function pullNewTransactions(pair: string): Promise<void> {
             ${trade.isBuyer}, ${trade.isMaker}, ${trade.isBestMatch})
         ON CONFLICT DO NOTHING
     `));
-
-    clearStakingCache(pair.replace(/USD[TC]$/, ''));
 }
 
 export async function readProfits(symbol: string | undefined = undefined, interval: string = '1 day'): Promise<number> {
@@ -197,13 +195,10 @@ export async function updateTransactionsForAllSymbols(accountInfo: Account | nul
 }
 
 export async function refreshMaterializedViews() {
-    try {
-        await Promise.all([
-            sql`SET client_min_messages TO WARNING; CALL refresh_continuous_aggregate('PNL_Day', NULL, NULL);`,
-            sql`SET client_min_messages TO WARNING; CALL refresh_continuous_aggregate('PNL_Week', NULL, NULL);`,
-            sql`SET client_min_messages TO WARNING; CALL refresh_continuous_aggregate('PNL_Month', NULL, NULL);`,
-            sql`SET client_min_messages TO WARNING; CALL refresh_continuous_aggregate('PNL_AllTime', NULL, NULL);`
-        ])
-    } catch (e) {
-    }
+    await Promise.all([
+        sql`CALL refresh_continuous_aggregate('PNL_Day', NULL, NULL);`,
+        sql`CALL refresh_continuous_aggregate('PNL_Week', NULL, NULL);`,
+        sql`CALL refresh_continuous_aggregate('PNL_Month', NULL, NULL);`,
+        sql`CALL refresh_continuous_aggregate('PNL_AllTime', NULL, NULL);`
+    ])
 }
