@@ -4,7 +4,7 @@ import postgres, { PostgresError } from 'postgres';
 import Trade from './trade';
 import Settings from './settings';
 import { addLogMessage } from './ui';
-import { getStakingAccount } from './autostaking';
+import { clearStakingCache, getStakingAccount } from './autostaking';
 import cache from 'memory-cache';
 
 dotenv.config();
@@ -104,6 +104,8 @@ export async function pullNewTransactions(pair: string): Promise<void> {
             ${trade.isBuyer}, ${trade.isMaker}, ${trade.isBestMatch})
         ON CONFLICT DO NOTHING
     `));
+
+    clearStakingCache(pair.replace(/USD[TC]$/, ''));
 }
 
 export async function readProfits(symbol: string | undefined = undefined, interval: string = '1 day'): Promise<number> {

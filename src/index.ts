@@ -91,7 +91,10 @@ binance.init().then(async () => {
 
     registerInputHandlers();
 
-    updateTransactionsForAllSymbols(accountInfo).then(() => printTransactions(state.selectedRow >= 0 ? Object.keys(state.currencies).sort()[state.selectedRow] : undefined));
+    updateTransactionsForAllSymbols(accountInfo).then(() => {
+        cache.keys().filter(k => k.startsWith(`readProfits-`)).forEach(cache.del);
+        printTransactions(state.selectedRow >= 0 ? Object.keys(state.currencies).sort()[state.selectedRow] : undefined);
+    });
 
     process.stdout.write('\u001B[?25l');
 
