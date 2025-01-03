@@ -1,5 +1,7 @@
+SET client_min_messages = warning;
 
 SELECT 'CREATE DATABASE transactions' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'transactions')\gexec
+
 
 \c transactions
 
