@@ -5,29 +5,13 @@ import binance from './binance-ext/throttled-binance-api';
 import { CandleChartInterval_LT } from 'binance-api-node';
 import { addLogMessage } from './ui';
 
-class OHLCV {
+export class OHLCV {
     open: number[] = [];
     high: number[] = [];
     low: number[] = [];
     close: number[] = [];
     volume: number[] = [];
     time: number[] = [];
-    get price(): number[] {
-        return this.close;
-    }
-
-    get length(): number {
-        return this.close.length;
-    }
-    get total(): number {
-        return this.close.length;
-    }
-    get count(): number {
-        return this.close.length;
-    }
-    get num(): number {
-        return this.close.length;
-    }
 };
 
 // class OHLCV {

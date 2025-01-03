@@ -2,7 +2,6 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { HttpMethod, Order, OrderType } from 'binance-api-node';
 import chalk from 'chalk';
 import cache from 'memory-cache';
 
@@ -13,6 +12,7 @@ import state from './state';
 
 import binance, { ThrottledBinanceAPI } from './binance-ext/throttled-binance-api';
 import { StakingAccountAssetResponse, StakingAccountAssetRow } from './binance-ext/simple-earn-api';
+import { Order, OrderType } from 'binance-api-node';
 
 type FlexibleProduct = {
     asset: string,
@@ -50,7 +50,7 @@ type FlexibleSubscriptionPurchase = {
     success: boolean
 };
 
-async function stakeBNSOL(amount: number): Promise<FlexibleSubscriptionPurchase | undefined> {
+async function stakeBNSOL(amount: number): Promise<number> {
     var order: Order | undefined;
     try {
         order = await binance.order({
@@ -61,12 +61,12 @@ async function stakeBNSOL(amount: number): Promise<FlexibleSubscriptionPurchase 
         });
     } catch (e) {
         addLogMessage(`🚫 ${timestampStr()} FAILED TO STAKE ${amount} SOL`);
-        return undefined;
+        return 0;
     }
 
     if (order.status !== 'FILLED') {
         addLogMessage(chalk.red(`🚫 ${timestampStr()} Failed to buy ${amount} BNSOL`));
-        return undefined;
+        return 0;
     }
 
     const executedQty = parseFloat(order.executedQty);
@@ -82,17 +82,17 @@ async function redeemBNSOL(amount: number): Promise<number> {
         return 0;
     }
 
-    const freeBNSOL = parseFloat(balance.free);
+    var freeBNSOL = parseFloat(balance.free);
 
     if (freeBNSOL < amount) {
-        await redeemFlexibleProduct('BNSOL', marketCeil('SOL', amount - freeBNSOL));
+        amount = freeBNSOL + await redeemFlexibleProduct('BNSOL', marketCeil('SOL', amount - freeBNSOL));
     }
 
     const order = await binance.order({
         type: OrderType.MARKET,
         symbol: 'BNSOLSOL',
         side: 'SELL',
-        quantity: amount.toFixed(6)
+        quantity: formatAssetQuantity('SOL', amount)
     });
 
     if (order.status !== 'FILLED') {
@@ -105,7 +105,7 @@ async function redeemBNSOL(amount: number): Promise<number> {
     return parseFloat(order.cummulativeQuoteQty);
 }
 
-export async function subscribeFlexibleProduct(asset: string, amount: number): Promise<FlexibleSubscriptionPurchase | undefined> {
+export async function subscribeFlexibleProduct(asset: string, amount: number): Promise<number> {
     if (asset === 'SOL') {
         return stakeBNSOL(amount);
     }
@@ -113,18 +113,23 @@ export async function subscribeFlexibleProduct(asset: string, amount: number): P
     const product = await findFlexibleProduct(asset);
     if (!product) {
         addLogMessage(chalk.red(`🚫 ${timestampStr()} No flexible product found for ${asset}`));
-        return undefined;
+        return 0;
     }
 
     const productId = product.productId;
 
-    const response = await binance.simpleEarn.flexibleSubscribe({ productId, amount, autoSubscribe: false });
+    const response = await binance.simpleEarn.flexibleSubscribe({ productId, amount, autoSubscribe: false }) as FlexibleSubscriptionPurchase;
+    if (response.success) {
 
-    addLogMessage(`💰 ${timestampStr()} STAKED ${chalk.yellow(formatAssetQuantity(asset, amount))} ${chalk.whiteBright(asset)}`);
+        addLogMessage(`💰 ${timestampStr()} STAKED ${chalk.yellow(formatAssetQuantity(asset, amount))} ${chalk.whiteBright(asset)}`);
 
-    clearStakingCache(asset);
+        clearStakingCache(asset);
 
-    return response;
+        return amount;
+    } else {
+        addLogMessage(chalk.red(`🚫 ${timestampStr()} Failed to stake ${amount} ${asset}`));
+        return 0;
+    }
 }
 
 class StakingAccount {
@@ -274,6 +279,9 @@ export async function redeemFlexibleProduct(asset: string, amount: number): Prom
 
 export async function redeemFlexibleProductAll(asset: string): Promise<number> {
     const stakedQuantity = await getStakedQuantity(asset);
+    if (stakedQuantity === 0) {
+        return 0;
+    }
     return await redeemFlexibleProduct(asset, stakedQuantity);
 }
 
@@ -286,19 +294,19 @@ export async function subscribeFlexibleProductAllFree(asset: string): Promise<nu
     }
 
     const amountToStake = parseFloat(balance.free);
-
-    const purchase = await subscribeFlexibleProduct(asset, amountToStake);
-    if (!purchase || !purchase.success) {
-        addLogMessage(chalk.red(`Failed to stake ${asset}`));
+    if (amountToStake === 0) {
         return 0;
     }
 
-    return amountToStake;
+    return await subscribeFlexibleProduct(asset, amountToStake);
 }
 
 export async function getStakingEffectiveAPR(asset: string): Promise<number> {
     if (asset === 'SOL') {
-        return 0.085;
+        // asset = 'BNSOL';
+        // const account = await binance.stakingSOL.account();
+        // const effectiveAPR = parseFloat(account.thirtyDaysProfitInSOL) / 30 * 365 / parseFloat(account.holdingInSOL);
+        // return effectiveAPR;
     }
     const cacheKey = `staking-apr-${asset}`;
     const cached = cache.get(cacheKey);

@@ -3,7 +3,8 @@ dotenv.config();
 
 import Binance, { Account, CandleChartResult, CandlesOptions, ExchangeInfo, ExchangeInfoRateLimit, HttpMethod, MyTrade, NewOrderSpot, Order, RateLimitInterval_LT } from "binance-api-node";
 import { RateLimiter, RateLimiterOpts } from "limiter";
-import { SimpleEarn } from "./simple-earn-api";
+import SimpleEarn from "./simple-earn-api";
+import StakingSOL from "./staking-sol";
 import { addLogMessage } from '../ui';
 import cache from 'memory-cache';
 
@@ -43,12 +44,13 @@ const weightCount = new Map<string, number>();
 
 function COUNT_WEIGHT(name: string, weight: number) {
     weightCount.set(name, (weightCount.get(name) || 0) + weight);
-    // addLogMessage(JSON.stringify([...weightCount.entries()]));
+    addLogMessage([...weightCount.entries()].map(([name, weight]) => `${name}: ${weight}`).join(', '));
 }
 
 export class ThrottledBinanceAPI {
 
     public simpleEarn: SimpleEarn;
+    // public stakingSOL: StakingSOL;
 
     private weightLimiter: CompositeRateLimiter = new CompositeRateLimiter([
         { tokensPerInterval: 6000, interval: 1000 * 60 }
@@ -121,6 +123,7 @@ export class ThrottledBinanceAPI {
     constructor(options?: { apiKey: string, apiSecret: string }) {
         this.api = Binance(options);
         this.simpleEarn = new SimpleEarn(this);
+        // this.stakingSOL = new StakingSOL(this);
     }
 
     async order(options: NewOrderSpot): Promise<Order> {

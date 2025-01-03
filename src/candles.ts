@@ -70,14 +70,14 @@ export class Candle {
         this.high = Math.max(this.high, price);
     }
 
-    render(min: number, max: number, height: number, y: number): string {
+    render(min: number, max: number, height: number, y: number, predictedStart: number = -1): string {
         return chalk.rgb(
             this.open < this.close ? 0 : 255,
             this.open < this.close ? 255 : 0, 0)
-            (this.render_unicode(min, max, height, y));
+            (this.render_unicode(min, max, height, y, predictedStart));
     }
 
-    render_unicode(min: number, max: number, height: number, y: number): string {
+    render_unicode(min: number, max: number, height: number, y: number, predictedStart: number = -1): string {
         const step: number = (max - min) / height;
         const startPrice: number = max - step * (y + 1);
         const endPrice: number = max - step * y;
@@ -121,11 +121,11 @@ export async function getCandles(symbol: string, interval: CandleChartInterval_L
             resolve(candles.map(c => new Candle(c)))));
 }
 
-export function renderCandles(candles: Candle[], height: number): { rows: string[]; min: number; max: number } {
+export function renderCandles(candles: Candle[], height: number, predictedStart:number=-1): { rows: string[]; min: number; max: number } {
     const max: number = candles.reduce((acc, candle) => Math.max(acc, candle.high), 0);
     const min: number = candles.reduce((acc, candle) => Math.min(acc, candle.low), Infinity);
     const result: string[] = new Array(height).fill(0).map((_, y) =>
-        candles.map(candle => candle.render(min, max, height, y)).join(''));
+        candles.map(candle => candle.render(min, max, height, y, predictedStart)).join(''));
     return { rows: result, min, max };
 }
 
