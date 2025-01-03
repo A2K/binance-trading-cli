@@ -86,12 +86,16 @@ export async function tick(priceInfo: Ticker): Promise<void> {
                         return;
                     }
 
-                    try {
-                        state.assets[symbol].orderInProgress = true;
-                        await order(symbol, quantity);
-                    } finally {
-                        state.assets[symbol].orderInProgress = false;
-                    }
+                    state.assets[symbol].orderInProgress = true;
+                    (async () => {
+                        try {
+                            await order(symbol, quantity);
+                        } catch (e) {
+                            state.assets[symbol].orderInProgress = false;
+                        } finally {
+                            state.assets[symbol].orderCompleted = true;
+                        }
+                    })();
 
                 } else if (forceTrade) {
                     if (Math.abs(quantity * state.assets[symbol].price) < state.assets[symbol].minNotional) {

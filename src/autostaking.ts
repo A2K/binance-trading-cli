@@ -347,5 +347,9 @@ export async function getStakingEffectiveAPRAverage(): Promise<number> {
 
 export function clearStakingCache(asset: string): void {
     cache.del(`staked-${asset}`);
-    cache.keys().filter(k => k.startsWith('readProfits-') || k.startsWith('staking-')).forEach(cache.del);
+    cache.keys().filter(k =>
+        k.startsWith(`readProfits-${asset}`) ||
+        k.startsWith(`staking-apr-${asset}`) ||
+        k.startsWith(`staking-account-${asset}`)
+    ).forEach(cache.del);
 }

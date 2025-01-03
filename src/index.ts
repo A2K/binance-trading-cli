@@ -2,7 +2,7 @@ import cache from 'memory-cache';
 import dotenv from 'dotenv';
 import state from './state';
 import { addLogMessage, printSymbol, printTrades, printTransactions } from './ui';
-import { pullNewTransactions, readTransactionLog, updateTransactionsForAllSymbols } from './transactions';
+import { pullNewTransactions, readTransactionLog, refreshMaterializedViews, updateTransactionsForAllSymbols } from './transactions';
 import Symbol from './symbol';
 import tick from './tick';
 import readline from 'readline';
@@ -14,7 +14,7 @@ import { clearStakingCache, getStakingAccount } from './autostaking';
 
 dotenv.config();
 import binance from './binance-ext/throttled-binance-api';
-import { bgLerp, lerpChalk, lerpColor, limitIndicator, progressBar, verticalBar } from './utils';
+import { bgLerp, circleIndicator, lerpChalk, lerpColor, limitIndicator, progressBar, verticalBar } from './utils';
 import chalk from 'chalk';
 
 async function updateStepSize(symbol: string): Promise<void> {
@@ -73,9 +73,18 @@ binance.init().then(async () => {
         if (msg.eventType === 'outboundAccountPosition') {
             for (const balance of msg.balances) {
                 state.balances[balance.asset] = parseFloat(balance.free) + parseFloat(balance.locked);
-                clearStakingCache(balance.asset);
                 await pullNewTransactions(`${balance.asset}${Settings.stableCoin}`);
+                await refreshMaterializedViews();
+                clearStakingCache(balance.asset);
                 printTransactions(state.selectedRow >= 0 ? Object.keys(state.currencies).sort()[state.selectedRow] : undefined);
+
+                if ((balance.asset in state.assets) &&
+                    state.assets[balance.asset].orderInProgress &&
+                    state.assets[balance.asset].orderCompleted) {
+                    state.assets[balance.asset].orderInProgress = false;
+                    state.assets[balance.asset].orderCompleted = false;
+                }
+                printSymbol(balance.asset);
             }
         }
     });
@@ -87,6 +96,7 @@ binance.init().then(async () => {
     process.stdout.write('\u001B[?25l');
 
     binance.ws.ticker(allSymbols.map(k => `${k}${Settings.stableCoin}`), async priceInfo => {
+        drawIndicators();
         const symbol: string = priceInfo.symbol.replace(Settings.stableCoin, '');
         if (symbol === Settings.stableCoin) return;
 
@@ -120,9 +130,19 @@ process.on('exit', () => {
     process.exit();
 });
 
-setInterval(() => {
-
-    const str = [
+var __drawIndicators_lastCall = 0;
+async function drawIndicators() {
+    const now = Date.now();
+    if (now - __drawIndicators_lastCall < 16) {
+        return;
+    }
+    __drawIndicators_lastCall = now;
+``
+    const str = circleIndicator({
+        current: binance.simpleEarn.__flexibleRedeemRateLimiter.getTokensRemaining(), max: 1
+    }) + circleIndicator({
+        current: binance.simpleEarn.__flexibleSubscribeRateLimiter.getTokensRemaining(), max: 1
+    }) + [
         binance.limits.count.concat(binance.limits.order).map(l => {
             const f = l.current / l.max;
             return lerpChalk([125, 32, 32], [32, 125, 32], f)(bgLerp([150, 0, 0], [0, 150, 0], f)(verticalBar(l)));
@@ -133,6 +153,6 @@ setInterval(() => {
         }).join('')
     ].join('');
 
-    readline.cursorTo(process.stdout, process.stdout.columns!-7, process.stdout.rows! - 1);
+    readline.cursorTo(process.stdout, process.stdout.columns!-9, process.stdout.rows! - 1);
     process.stdout.write(str);
-}, 16);
+}

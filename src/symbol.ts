@@ -47,7 +47,8 @@ export class Symbol implements Ticker {
 
     showTradeFrames: number = 0;
 
-    orderInProgress: boolean = false;
+    public orderInProgress: boolean = false;
+    public orderCompleted: boolean = false;
 
     get lowPrice(): number {
         return parseFloat(this.low);

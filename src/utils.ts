@@ -110,4 +110,8 @@ export function trimTrailingZeroes(value: string): string {
   return value.replace(/(\.\d+)(?<!0)0+/, '$1');
 }
 
-['○', '◔', '◑', '◕', '●'];
+export function circleIndicator(limit = { current: 0, max: 1 }, colorA = [255, 0, 0], colorB = [0, 255, 0]): string {
+  const symbols = ['○', '◔', '◑', '◕', '●'];
+  const fraction = clamp(limit.current / limit.max);
+  return lerpChalk(colorA, colorB, fraction)(symbols[Math.round((symbols.length - 1) * fraction)]);
+}

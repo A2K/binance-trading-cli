@@ -1,5 +1,6 @@
 import { HttpMethod } from "binance-api-node";
 import { ThrottledBinanceAPI } from "./throttled-binance-api";
+import { RateLimiter } from "limiter";
 
 export type FlexibleProduct = {
     asset: string,
@@ -79,7 +80,15 @@ export class SimpleEarn {
         return result;
     }
 
-    async flexibleSubscribe(options: { productId: string, amount: number, autoSubscribe?: boolean, sourceAccount?: string, recvWindow?: number }): Promise<FlexibleSubscriptionPurchase> {
+    __flexibleSubscribeRateLimiter = new RateLimiter({ tokensPerInterval: 1, interval: 3000 });
+    async flexibleSubscribe(options: { productId: string, amount: number, autoSubscribe?: boolean, sourceAccount?: string, recvWindow?: number }, blocking: boolean = true): Promise<FlexibleSubscriptionPurchase> {
+        if (!blocking) {
+            if (!this.__flexibleSubscribeRateLimiter.tryRemoveTokens(1)) {
+                return { purchaseId: -1, success: false };
+            }
+        } else {
+            await this.__flexibleSubscribeRateLimiter.removeTokens(1);
+        }
         const weight = 1;
         return await this.binance.privateRequest(
             'POST' as HttpMethod,
@@ -87,8 +96,16 @@ export class SimpleEarn {
             options, weight) as FlexibleSubscriptionPurchase;
     }
 
-    async flexibleRedeem(options: { productId: string, redeemAll?: boolean, amount?: number, destAccount?: string, recvWindow?: number }): Promise<RedeemResponse> {
+    __flexibleRedeemRateLimiter = new RateLimiter({ tokensPerInterval: 1, interval: 3000 });
+    async flexibleRedeem(options: { productId: string, redeemAll?: boolean, amount?: number, destAccount?: string, recvWindow?: number }, blocking: boolean = true): Promise<RedeemResponse> {
         const weight = 1;
+        if (!blocking) {
+            if (!this.__flexibleRedeemRateLimiter.tryRemoveTokens(1)) {
+                return { redeemId: -1, success: false };
+            }
+        } else {
+            await this.__flexibleRedeemRateLimiter.removeTokens(1);
+        }
         return await this.binance.privateRequest(
             'POST' as HttpMethod,
             '/sapi/v1/simple-earn/flexible/redeem',

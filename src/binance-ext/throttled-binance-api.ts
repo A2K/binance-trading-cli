@@ -44,7 +44,7 @@ const weightCount = new Map<string, number>();
 
 function COUNT_WEIGHT(name: string, weight: number) {
     weightCount.set(name, (weightCount.get(name) || 0) + weight);
-    addLogMessage([...weightCount.entries()].map(([name, weight]) => `${name}: ${weight}`).join(', '));
+    // addLogMessage([...weightCount.entries()].map(([name, weight]) => `${name}: ${weight}`).join(', '));
 }
 
 export class ThrottledBinanceAPI {

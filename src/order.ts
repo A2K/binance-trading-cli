@@ -2,13 +2,12 @@ import { OrderType } from 'binance-api-node';
 import dotenv from 'dotenv';
 import state from './state';
 import { formatAssetQuantity, marketCeil, timestampStr } from './utils';
-import { addLogMessage, printTransactions } from './ui';
+import { addLogMessage } from './ui';
 import Settings from './settings';
 import { redeemFlexibleProduct, subscribeFlexibleProductAllFree } from './autostaking';
 
 dotenv.config();
 import binance from './binance-ext/throttled-binance-api';
-import { pullNewTransactions } from './transactions';
 
 export async function order(symbol: string, quantity: number): Promise<boolean> {
     if (quantity < 0) {
@@ -18,7 +17,6 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
                 await redeemFlexibleProduct(symbol, amountToUnstake);
             } catch (e) {
                 addLogMessage(`🚫 ${timestampStr()} FAILED TO REDEEM ${amountToUnstake} ${symbol}`)
-                return false;
             }
         }
     } else {
@@ -27,7 +25,6 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
                 await redeemFlexibleProduct(Settings.stableCoin, marketCeil(symbol, quantity - state.balances[Settings.stableCoin]));
             } catch (e) {
                 addLogMessage(`🚫 ${timestampStr()} FAILED TO REDEEM ${quantity - state.balances[Settings.stableCoin]} ${Settings.stableCoin}`);
-                return false;
             }
         }
     }
