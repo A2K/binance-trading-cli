@@ -73,15 +73,11 @@ binance.init().then(async () => {
         if (msg.eventType === 'outboundAccountPosition') {
             for (const balance of msg.balances) {
                 state.balances[balance.asset] = parseFloat(balance.free) + parseFloat(balance.locked);
+
                 await pullNewTransactions(`${balance.asset}${Settings.stableCoin}`);
                 await refreshMaterializedViews();
                 clearStakingCache(balance.asset);
                 printTransactions(state.selectedRow >= 0 ? Object.keys(state.currencies).sort()[state.selectedRow] : undefined);
-
-                if ((balance.asset in state.assets) &&
-                    state.assets[balance.asset].orderInProgress) {
-                    state.assets[balance.asset].orderInProgress = false;
-                }
 
                 printSymbol(balance.asset);
             }
@@ -140,19 +136,20 @@ async function drawIndicators() {
     }
     __drawIndicators_lastCall = now;
 ``
-    const str = circleIndicator({
+    const str = chalk.bgRgb(32, 32, 32)(circleIndicator({
         current: binance.simpleEarn.__flexibleRateLimiter.getTokensRemaining(), max: 1
-    }) + [
+    }) + ' ' + [
         binance.limits.count.concat(binance.limits.order).map(l => {
             const f = l.current / l.max;
             return lerpChalk([125, 32, 32], [32, 125, 32], f)(bgLerp([150, 0, 0], [0, 150, 0], f)(verticalBar(l)));
-        }).join(''),
+        }).join(' '),
         binance.limits.weight.map(l => {
             const f = l.current / l.max;
             return progressBar(l, 4, lerpColor([155, 0, 0], [0, 155, 0], f), lerpColor([50, 0, 0], [0, 50, 0], f));
-        }).join('')
-    ].join(' ');
+        }).join(' ')
+    ].join(' '));
 
-    readline.cursorTo(process.stdout, process.stdout.columns!-9, process.stdout.rows! - 1);
+    readline.cursorTo(process.stdout, process.stdout.columns!-12, process.stdout.rows! - 1);
     process.stdout.write(str);
 }
+

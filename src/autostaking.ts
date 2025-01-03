@@ -298,7 +298,9 @@ export async function subscribeFlexibleProductAllFree(asset: string): Promise<nu
         return 0;
     }
 
-    return await subscribeFlexibleProduct(asset, amountToStake);
+    const staked = await subscribeFlexibleProduct(asset, amountToStake);
+    balance.free = (parseFloat(balance.free) - staked).toFixed(8);
+    return staked;
 }
 
 export async function getStakingEffectiveAPR(asset: string): Promise<number> {
@@ -347,9 +349,9 @@ export async function getStakingEffectiveAPRAverage(): Promise<number> {
 
 export function clearStakingCache(asset: string): void {
     cache.del(`staked-${asset}`);
+    cache.del(`staking-account-all`);
+    cache.del(`staking-account-${asset}`);
+    cache.del(`staking-apr-${asset}`);
     cache.keys().filter(k =>
-        k.startsWith(`readProfits-${asset}`) ||
-        k.startsWith(`staking-apr-${asset}`) ||
-        k.startsWith(`staking-account-${asset}`)
-    ).forEach(cache.del);
+        k.startsWith(`readProfits-`)).forEach(cache.del);
 }

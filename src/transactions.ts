@@ -147,6 +147,7 @@ export async function readProfits(symbol: string | undefined = undefined, interv
             ${sql(view.toLowerCase())}
         WHERE
             bucket = time_bucket(${interval}, now())
+            AND NOT (symbol = 'USDT' OR symbol = 'USDC')
     `))[0]?.total || 0);
 }
 

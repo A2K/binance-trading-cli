@@ -46,7 +46,8 @@ export class Symbol implements Ticker {
     indicatorValues: IndicatorValues = new IndicatorValues();
 
     public orderInProgress: boolean = false;
-    public orderCompleted: boolean = false;
+    public stakingInProgress: boolean = false;
+
     showTradeStartTime?: Date;
 
     get lowPrice(): number {
