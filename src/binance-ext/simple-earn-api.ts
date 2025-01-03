@@ -80,7 +80,7 @@ export class SimpleEarn {
         return result;
     }
 
-    __flexibleRateLimiter = new RateLimiter({ tokensPerInterval: 1, interval: 3000 });
+    __flexibleRateLimiter = new RateLimiter({ tokensPerInterval: 1, interval: 4000 });
     async flexibleSubscribe(options: { productId: string, amount: number, autoSubscribe?: boolean, sourceAccount?: string, recvWindow?: number }, blocking: boolean = true): Promise<FlexibleSubscriptionPurchase> {
         if (!blocking) {
             if (!this.__flexibleRateLimiter.tryRemoveTokens(1)) {

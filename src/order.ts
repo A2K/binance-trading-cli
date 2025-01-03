@@ -41,7 +41,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
         return false;
     }
 
-    state.assets[symbol].showTradeFrames = 10;
+    state.assets[symbol].showTradeStartTime = new Date();
 
     if (quantity > 0 && state.assets[symbol].staking) {
         await subscribeFlexibleProductAllFree(symbol);

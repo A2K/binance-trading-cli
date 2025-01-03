@@ -1,7 +1,8 @@
 SET client_min_messages = warning;
-
+ALTER ROLE postgres SET client_min_messages=WARNING;
+ALTER SYSTEM SET client_min_messages=WARNING;
 SELECT 'CREATE DATABASE transactions' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'transactions')\gexec
-
+ALTER DATABASE transactions SET client_min_messages=WARNING;
 
 \c transactions
 

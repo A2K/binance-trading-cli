@@ -50,7 +50,7 @@ export const makeVelocitySymbol = (velocity: number): string => {
 }
 
 export const colorizeSymbolProfit = async (symbol: string, delta: number): Promise<string> => {
-    const alpha: number = state.assets[symbol].showTradeFrames / 10;
+    const alpha: number = clamp(1.0 - (Date.now() - (state.assets[symbol].showTradeStartTime?.getTime() || 0)) / 10.0);
 
     let deltaStr: string = ((delta < 0 ? '-' : '+') + (Math.abs(delta).toFixed(2))).padEnd(10);
     const maxDeltaProfit: number = (await Promise.all(Object.keys(state.currencies).map(async c => readProfits(c)))).reduce((acc, profit) => Math.max(acc, Math.abs(profit)), 0);

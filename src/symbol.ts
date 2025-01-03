@@ -45,10 +45,9 @@ export class Symbol implements Ticker {
 
     indicatorValues: IndicatorValues = new IndicatorValues();
 
-    showTradeFrames: number = 0;
-
     public orderInProgress: boolean = false;
     public orderCompleted: boolean = false;
+    showTradeStartTime?: Date;
 
     get lowPrice(): number {
         return parseFloat(this.low);

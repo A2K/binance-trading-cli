@@ -8,6 +8,7 @@ import { order } from './order';
 import { readProfits } from './transactions';
 import { Ticker } from 'binance-api-node';
 import { clearStakingCache } from './autostaking';
+import binance from './binance-ext/throttled-binance-api';
 
 var __calculatingIndicators = false;
 export async function tick(priceInfo: Ticker): Promise<void> {
@@ -53,7 +54,7 @@ export async function tick(priceInfo: Ticker): Promise<void> {
 
     printStats(symbol, deltaPrice);
 
-    if (state.assets[symbol].orderInProgress) {
+    if (state.assets[symbol].orderInProgress || !binance.canStakeOrRedeem) {
         return;
     }
 
@@ -92,8 +93,6 @@ export async function tick(priceInfo: Ticker): Promise<void> {
                             await order(symbol, quantity);
                         } catch (e) {
                             state.assets[symbol].orderInProgress = false;
-                        } finally {
-                            state.assets[symbol].orderCompleted = true;
                         }
                     })();
 

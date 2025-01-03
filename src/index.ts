@@ -79,11 +79,10 @@ binance.init().then(async () => {
                 printTransactions(state.selectedRow >= 0 ? Object.keys(state.currencies).sort()[state.selectedRow] : undefined);
 
                 if ((balance.asset in state.assets) &&
-                    state.assets[balance.asset].orderInProgress &&
-                    state.assets[balance.asset].orderCompleted) {
+                    state.assets[balance.asset].orderInProgress) {
                     state.assets[balance.asset].orderInProgress = false;
-                    state.assets[balance.asset].orderCompleted = false;
                 }
+
                 printSymbol(balance.asset);
             }
         }

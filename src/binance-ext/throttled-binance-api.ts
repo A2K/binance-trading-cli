@@ -189,6 +189,11 @@ export class ThrottledBinanceAPI {
         COUNT_WEIGHT(path, weight);
         return this.api.publicRequest(method, path, Object.assign(data, { timestamp: Date.now() }));
     }
+
+    get canStakeOrRedeem(): boolean {
+        return this.simpleEarn.__flexibleRateLimiter.getTokensRemaining() >= 1
+            && this.weightLimiter.limiters[0].getTokensRemaining() >= 300;
+    }
 }
 
 const binance = new ThrottledBinanceAPI({
