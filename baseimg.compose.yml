@@ -1,7 +1,7 @@
 
 services:
   tradebot:
-    image: a2k0001/tradebot-baseimg
+    image: a2k0001/tradebot:baseimg
     build:
       context: .
       dockerfile: Dockerfile.baseimg

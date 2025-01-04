@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import Binance, { Account, CandleChartResult, CandlesOptions, ExchangeInfo, ExchangeInfoRateLimit, HttpMethod, MyTrade, NewOrderSpot, Order, RateLimitInterval_LT } from "binance-api-node";
+import Binance, { Account, CandleChartResult, CandlesOptions, ExchangeInfo, ExchangeInfoRateLimit, HttpMethod, MyTrade, NewOrderSpot, Order, RateLimitInterval_LT, WithdrawResponse } from "binance-api-node";
 import { RateLimiter, RateLimiterOpts } from "limiter";
 import SimpleEarn from "./simple-earn-api";
 import StakingSOL from "./staking-sol";
@@ -163,19 +163,25 @@ export class ThrottledBinanceAPI {
     }
 
     async exchangeInfo(options?: { symbol: string }): Promise<ExchangeInfo> {
+        const cacheKey = '___exchangeInfo__symbol_' + options?.symbol;
+        const cached = cache.get(cacheKey);
+        if (cached) return cached;
         // https://developers.binance.com/docs/binance-spot-api-docs/rest-api/general-endpoints#exchange-information
         await Promise.all([this.weightLimiter.removeTokens(20), this.countLimiter.removeTokens(1)]);
         COUNT_WEIGHT('exchangeInfo', 20);
-        return this.api.exchangeInfo(options);
+        return cache.put(cacheKey, this.api.exchangeInfo(options), 100);
     }
 
     async candles(options: CandlesOptions): Promise<CandleChartResult[]> {
+        const cacheKey = '___candles__' + JSON.stringify(options);
+        const cached = cache.get(cacheKey);
+        if (cached) return cached;
         // https://developers.binance.com/docs/derivatives/coin-margined-futures/market-data/Kline-Candlestick-Data#api-description
         await Promise.all([ this.weightLimiter.removeTokens(options.limit
             ? (options.limit < 100 ? 1 : (options.limit < 500 ? 2 : 5)) : 5),
             this.countLimiter.removeTokens(1)]);
         COUNT_WEIGHT('candles', 5);
-        return this.api.candles(options);
+        return cache.put(cacheKey, this.api.candles(options), 1000);
     }
 
     async privateRequest(method: HttpMethod, path: string, data: any, weight: number): Promise<unknown> {
@@ -193,6 +199,21 @@ export class ThrottledBinanceAPI {
     get canStakeOrRedeem(): boolean {
         return this.simpleEarn.__flexibleRateLimiter.getTokensRemaining() >= 1
             && this.weightLimiter.limiters[0].getTokensRemaining() >= 300;
+    }
+
+    async withdraw(options: {
+        coin: string
+        network?: string
+        address: string
+        amount: number
+        name?: string
+        transactionFeeFlag?: boolean,
+        walletType?: number
+    }): Promise<WithdrawResponse> {
+        const weight = 600;
+        await Promise.all([this.weightLimiter.removeTokens(weight), this.countLimiter.removeTokens(1)]);
+        COUNT_WEIGHT('withdraw', weight);
+        return this.api.withdraw(options);
     }
 }
 

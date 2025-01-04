@@ -2,9 +2,10 @@ import readline from 'readline';
 import chalk from 'chalk';
 import Fuse from 'fuse.js';
 import Settings, { saveConfigFile } from './settings';
-import { addLogMessage, drawCandles, printStats, printSymbol, printTrades, printTransactions } from './ui';
+import { addLogMessage, clearTransactions, drawCandles, printStats, printSymbol, printTrades, printTransactions } from './ui';
 import state from './state';
 import { redeemFlexibleProductAll, subscribeFlexibleProductAllFree } from './autostaking';
+import { closeLiveIndicator } from './indicators';
 
 var lookupStr = '';
 var lookupClearTimeout: NodeJS.Timer | undefined;
@@ -213,9 +214,7 @@ export default function registerInputHandlers() {
                 Settings.interpSpeed /= 2;
                 addLogMessage(`INTERPOLATION SPEED SET TO ${Settings.interpSpeed}`);
             } else if (code[0] === 9) { // TAB
-                Settings.showTime = !Settings.showTime;
-                readline.cursorTo(process.stdout, 0, 0);
-                readline.clearScreenDown(process.stdout);
+                Settings.drawCandles = !Settings.drawCandles;
                 printTrades();
             } else if (code[0] === 63) { // ?
                 const help: string[] = [
@@ -263,10 +262,9 @@ export default function registerInputHandlers() {
             } else if (code[0] === 8 || code[0] === 127) { // BACKSPACE
                 if (state.selectedRow >= 0) {
                     const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
-                    if (symbol in state.balances) {
-                        state.currencies[symbol] = state.balances[symbol] * state.assets[symbol].price;
-                    }
-                    printSymbol(symbol);
+                    state.wallet.total(symbol).then((total) =>
+                        state.currencies[symbol] = total * state.assets[symbol].price)
+                        .then(() => printSymbol(symbol));
                 }
             } else if (code[0] > 'A'.charCodeAt(0) && code[0] <= 'z'.charCodeAt(0)) { // A-Z
                 addLookupChar(String.fromCharCode(code[0]));
@@ -294,6 +292,16 @@ export default function registerInputHandlers() {
 
         if (lastSelectedRow != state.selectedRow)
         {
+            const symbol = Object.keys(state.currencies).sort()[lastSelectedRow];
+            if (lastSelectedRow >= 0 && state.assets[symbol]) {
+                for (const period of ['1h', '1d', '1w', '1M']) {
+                    closeLiveIndicator('SMA', `${symbol}${Settings.stableCoin}`, period);
+                    closeLiveIndicator('EMA', `${symbol}${Settings.stableCoin}`, period);
+                    closeLiveIndicator('RSI', `${symbol}${Settings.stableCoin}`, period);
+                    closeLiveIndicator('stRSI', `${symbol}${Settings.stableCoin}`, period);
+                }
+            }
+
             printTransactions(state.selectedRow >= 0
                 ? Object.keys(state.currencies).sort()[state.selectedRow]
                 : undefined);

@@ -1,13 +1,12 @@
 
 import chalk from 'chalk';
 import state from './state';
-import { printStats, printTrades } from './ui';
+import { printStats } from './ui';
 import { getAssetBallance, lerp, marketRound, timestampStr } from './utils';
 import { addLogMessage } from './ui';
 import { order } from './order';
 import { readProfits } from './transactions';
 import { Ticker } from 'binance-api-node';
-import { clearStakingCache } from './autostaking';
 import binance from './binance-ext/throttled-binance-api';
 
 var __calculatingIndicators = false;

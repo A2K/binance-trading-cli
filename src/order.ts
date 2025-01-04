@@ -11,8 +11,8 @@ import binance from './binance-ext/throttled-binance-api';
 
 export async function order(symbol: string, quantity: number): Promise<boolean> {
     if (quantity < 0) {
-        if ((state.balances[symbol] || 0) < Math.abs(quantity)) {
-            const amountToUnstake = marketCeil(symbol, Math.abs(quantity) - (state.balances[symbol] || 0));
+        if (await state.wallet.free(symbol) < Math.abs(quantity)) {
+            const amountToUnstake = marketCeil(symbol, Math.abs(quantity) - parseFloat((await state.wallet.get(symbol)).free));
             state.assets[symbol].stakingInProgress = true;
             try {
                 await redeemFlexibleProduct(symbol, amountToUnstake);
@@ -21,12 +21,12 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
             }
         }
     } else {
-        if (state.balances[Settings.stableCoin] < quantity) {
+        if (await state.wallet.free(Settings.stableCoin) < quantity) {
             state.assets[symbol].stakingInProgress = true;
             try {
-                await redeemFlexibleProduct(Settings.stableCoin, marketCeil(symbol, quantity - state.balances[Settings.stableCoin]));
+                await redeemFlexibleProduct(Settings.stableCoin, marketCeil(symbol, quantity - await state.wallet.free(Settings.stableCoin)));
             } catch (e) {
-                addLogMessage(`🚫 ${timestampStr()} FAILED TO REDEEM ${quantity - state.balances[Settings.stableCoin]} ${Settings.stableCoin}`);
+                addLogMessage(`🚫 ${timestampStr()} FAILED TO REDEEM ${quantity - await state.wallet.free(Settings.stableCoin)} ${Settings.stableCoin}`);
             }
         }
     }
@@ -51,6 +51,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
         await subscribeFlexibleProductAllFree(symbol);
     }
 
+    state.wallet.markOutOfDate(symbol);
     state.assets[symbol].orderInProgress = false;
 
     return true;

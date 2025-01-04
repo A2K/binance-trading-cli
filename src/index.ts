@@ -2,7 +2,7 @@ import cache from 'memory-cache';
 import dotenv from 'dotenv';
 import state from './state';
 import { addLogMessage, printSymbol, printTrades, printTransactions } from './ui';
-import { pullNewTransactions, readTransactionLog, refreshMaterializedViews, updateTransactionsForAllSymbols } from './transactions';
+import { pullNewTransactions, refreshMaterializedViews, updateTransactionsForAllSymbols } from './transactions';
 import Symbol from './symbol';
 import tick from './tick';
 import readline from 'readline';
@@ -59,21 +59,9 @@ binance.init().then(async () => {
         .filter(s => !s.startsWith('LD') || s === 'LDO'))
     ].sort();
 
-    for (const balance of accountInfo.balances) {
-        const value: number = parseFloat(balance.free) + parseFloat(balance.locked);
-        if (value > 0) {
-            state.balances[balance.asset] = parseFloat(balance.free) + parseFloat(balance.locked);
-            if (balance.asset in state.currencies && balance.asset in state.assets) {
-                printSymbol(balance.asset);
-            }
-        }
-    }
-
     binance.ws.user(async msg => {
         if (msg.eventType === 'outboundAccountPosition') {
-            for (const balance of msg.balances) {
-                state.balances[balance.asset] = parseFloat(balance.free) + parseFloat(balance.locked);
-
+            for (const balance of msg.balances!) {
                 await pullNewTransactions(`${balance.asset}${Settings.stableCoin}`);
                 await refreshMaterializedViews();
                 clearStakingCache(balance.asset);
@@ -110,7 +98,7 @@ binance.init().then(async () => {
         }
 
         if (!(symbol in state.currencies)) {
-            state.currencies[symbol] = state.balances[symbol] * state.assets[symbol].price;
+            state.currencies[symbol] = (await state.wallet.total(symbol)) * state.assets[symbol].price;
             printTrades();
         }
 
@@ -153,3 +141,11 @@ async function drawIndicators() {
     process.stdout.write(str);
 }
 
+
+//handle ctrl+c
+process.on('SIGINT', function () {
+    // execute "tmux detach -t tradebot"
+    const { exec } = require('child_process');
+
+    process.exit();
+});

@@ -56,7 +56,7 @@ export class Trade implements MyTrade {
     toString(): string {
         return `${(this.isBuyer ? '🪙' : '💵')} ${timestampStr(this.date)} ` +
             `${(this.isBuyer ? chalk.redBright : chalk.greenBright)((this.isBuyer ? '-' : '+') + Math.abs(this.quoteQuantity).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
-            `${(this.isBuyer ? chalk.green : chalk.red)((this.isBuyer ? '+' : '-') + Math.abs(this.quantity))} ${chalk.bold(this.symbol)} at ${chalk.yellowBright(this.price)} ` +
+            `${(this.isBuyer ? chalk.green : chalk.red)((this.isBuyer ? '+' : '-') + formatAssetQuantity(this.symbol, Math.abs(this.quantity)))} ${chalk.bold(this.symbol)} at ${chalk.yellowBright(formatAssetQuantity(this.symbol, parseFloat(this.price)))} ` +
             chalk.rgb(125, 125, 125)(`fee ${chalk.rgb(150, 125, 50)(this.commission)} ${chalk.rgb(150, 150, 150)(this.commissionAsset)}`);
     }
 

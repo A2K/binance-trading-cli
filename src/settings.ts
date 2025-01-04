@@ -36,7 +36,7 @@ type SettingsType = {
     interpSpeed: number,
     enableTradeByDefault: boolean,
     enableInputLogging: boolean,
-    showTime: boolean,
+    drawCandles: boolean,
     stableCoins: StableCoin[]
     stableCoin: StableCoin
 };

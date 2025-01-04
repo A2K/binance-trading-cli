@@ -14,17 +14,6 @@ export class OHLCV {
     time: number[] = [];
 };
 
-// class OHLCV {
-//     open: number[] = [];
-//     high: number[] = [];
-//     low: number[] = [];
-//     close: number[] = [];
-//     volume: number[] = [];
-//     time: number[] = [];
-//     get price(): number[] {
-//         return this.close;
-//     }
-// };
 export class LiveOHLCVHistory {
     data: OHLCV = new OHLCV();
 
@@ -32,6 +21,7 @@ export class LiveOHLCVHistory {
     interval: string;
     size: number = -1;
     updateCallbacks: ((history: LiveOHLCVHistory) => void)[] = [];
+    handle?: import("binance-api-node").ReconnectingWebSocketHandler;
 
     constructor(pair: string, interval: string) {
         this.pair = pair;
@@ -55,7 +45,7 @@ export class LiveOHLCVHistory {
             this.data.time.push(new Date(candle.openTime).getTime());
         }
 
-        binance.ws.candles(this.pair, this.interval, (candle) => {
+        this.handle = binance.ws.candles(this.pair, this.interval, (candle) => {
             if (this.data.time.length > 0 && candle.startTime === this.data.time[this.data.time.length - 1]) {
                 this.data.open[this.data.open.length - 1] = parseFloat(candle.open);
                 this.data.high[this.data.high.length - 1] = parseFloat(candle.high);
@@ -68,7 +58,7 @@ export class LiveOHLCVHistory {
                 this.data.low.push(parseFloat(candle.low));
                 this.data.close.push(parseFloat(candle.close));
                 this.data.volume.push(parseFloat(candle.volume));
-                this.data.time.push(new Date(candle.startTime).getTime());
+                this.data.time.push(candle.startTime);
             }
             while (this.data.time.length > this.size) {
                 this.data.open.shift();
@@ -95,9 +85,15 @@ export class LiveOHLCVHistory {
             this.updateCallbacks = [];
         }
     }
+
+    close() {
+        if (this.handle) {
+            this.handle();
+        }
+    }
 }
 
-class LiveIndicator {
+export class LiveIndicator {
     pair: string;
     interval: string;
     method: (history: LiveOHLCVHistory) => Promise<number>;
@@ -118,10 +114,7 @@ class LiveIndicator {
         await this.history.init();
         this.value = await this.method(this.history);
         this.history.on('update', (history: LiveOHLCVHistory) => {
-            this.method(history).then((newValue: number) => {
-                this.needsUpdate = true;
-                // this.value = newValue
-            });
+            this.needsUpdate = true;
         });
         return this;
     }
@@ -133,6 +126,10 @@ class LiveIndicator {
         }
         return this;
     }
+
+    close() {
+        this.history.close();
+    }
 }
 
 async function getLiveOHLCVHistory(pair: string, interval: string): Promise<LiveOHLCVHistory> {
@@ -141,8 +138,17 @@ async function getLiveOHLCVHistory(pair: string, interval: string): Promise<Live
 }
 
 export async function getLiveIndicator(name: string, pair: string, interval: string, method: (history: LiveOHLCVHistory) => Promise<number>): Promise<LiveIndicator> {
-    const cacheKey = `getLiveIndicator(${name},${pair},${interval},${method.name})`;
-    return (await (cache.get(cacheKey) || cache.put(cacheKey, new LiveIndicator(pair, interval, method)).init())).update();
+    const cacheKey = `getLiveIndicator(${name},${pair},${interval})`;
+    return await (await (cache.get(cacheKey) || cache.put(cacheKey, new LiveIndicator(pair, interval, method)).init())).update();
+}
+
+export async function closeLiveIndicator(name: string, pair: string, interval: string): Promise<void> {
+    const cacheKey = `getLiveIndicator(${name},${pair},${interval})`;
+    const indicator = await cache.get(cacheKey) as LiveIndicator;
+    if (indicator) {
+        indicator.close();
+        cache.del(cacheKey);
+    }
 }
 
 export class Indicators {

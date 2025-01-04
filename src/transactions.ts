@@ -109,7 +109,7 @@ export async function pullNewTransactions(pair: string): Promise<void> {
 export async function readProfits(symbol: string | undefined = undefined, interval: string = '1 day'): Promise<number> {
     const cacheKey = `readProfits-${symbol}-${interval}`;
     const cachedValue = cache.get(cacheKey);
-    if (cachedValue) {
+    if (cachedValue || cachedValue === 0) {
         return cachedValue;
     }
 
@@ -154,8 +154,8 @@ export async function readProfits(symbol: string | undefined = undefined, interv
 export async function readTransactionLog(symbol?: string, maxItems: number = 100): Promise<Trade[]> {
     try {
         const data = symbol
-            ? await sql`SELECT * FROM transactions WHERE symbol = ${symbol} ORDER BY time DESC limit ${maxItems}`
-            : await sql`SELECT * FROM transactions ORDER BY time DESC limit ${maxItems}`;
+            ? await sql`SELECT bucket as time, * FROM transactions_agg WHERE symbol = ${symbol} ORDER BY time DESC limit ${maxItems}`
+            : await sql`SELECT bucket as time, * FROM transactions_agg ORDER BY time DESC limit ${maxItems}`;
         return data.map(row => new Trade(row));
     } catch (e: any) {
         addLogMessage('readTransactionLogFailed:', e.toString());
@@ -197,6 +197,7 @@ export async function updateTransactionsForAllSymbols(accountInfo: Account | nul
 
 export async function refreshMaterializedViews() {
     await Promise.all([
+        sql`CALL refresh_continuous_aggregate('transactions_agg', NULL, NULL);`,
         sql`CALL refresh_continuous_aggregate('PNL_Day', NULL, NULL);`,
         sql`CALL refresh_continuous_aggregate('PNL_Week', NULL, NULL);`,
         sql`CALL refresh_continuous_aggregate('PNL_Month', NULL, NULL);`,

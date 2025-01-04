@@ -44,16 +44,22 @@ export async function getAssetBallance(asset: string): Promise<number> {
   if (asset === 'SOL') {
     const coef = 'BNSOL' in state.assets && 'SOL' in state.assets
       ? state.assets['BNSOL'].price / state.assets['SOL'].price : 1.0;
-    return (state.balances[asset] || 0) + stakedQuantity * coef;
+    return await state.wallet.total(asset) + stakedQuantity * coef;
   }
-  return (state.balances[asset] || 0) + stakedQuantity;
+  return await state.wallet.total(asset) + stakedQuantity;
 }
 
 export function formatAssetQuantity(asset: string, quantity: number): string {
-  const precision = (asset in state.assets)
+  const precision = 10; /*(asset in state.assets)
     ? clamp(Math.ceil(Math.log10(1.0 / state.assets[asset].stepSize)), 0, 8)
     : 8 /* default */;
-  return trimTrailingZeroes((quantity || 0).toFixed(precision));
+  const step1 = trimTrailingZeroes((quantity || 0).toFixed(precision + 1).slice(0, -2));
+  if (step1.endsWith('9999')) {
+    const lastDigit = step1.replace(/^.*\..*([^9])9+$/, "$1");
+    const firstPart = step1.replace(/^(.*\..*)[^9]9+$/, "$1");
+    return firstPart + parseInt(lastDigit) + 1;
+  }
+  return step1.replace(/\.0$/, '');
 }
 
 export function marketCeil(asset: string, quantity: number): number {
@@ -107,7 +113,7 @@ export function progressBarText(limit: { current: number, max: number }, width: 
       + bg(symbols[symbols.length - 1].repeat(Math.max(0, width - text.length)));
 }
 export function trimTrailingZeroes(value: string): string {
-  return value.replace(/(\.\d+)(?<!0)0+/, '$1');
+  return value.replace(/(\.\d+)(?<!0)0+/, '$1').replace(/(.*\.0)0+$/, "$1");
 }
 
 export function circleIndicator(limit = { current: 0, max: 1 }, colorA = [255, 0, 0], colorB = [0, 255, 0]): string {

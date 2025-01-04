@@ -1,4 +1,4 @@
-import * as brain from 'brain.js';
+/*import * as brain from 'brain.js';
 import { INeuralNetworkData, INeuralNetworkOptions, INeuralNetworkTrainOptions } from 'brain.js/dist/neural-network';
 import ccxt from 'ccxt';
 import fs from 'fs';
@@ -218,3 +218,4 @@ async function main() {
 }
 
 main();
+*/

@@ -29,6 +29,22 @@ SELECT create_hypertable('transactions', by_range('time'));
 CREATE UNIQUE INDEX ON transactions (id, time)\gexec
 CREATE INDEX ON transactions ("isBuyer")\gexec
 
+CREATE MATERIALIZED VIEW transactions_agg
+WITH (timescaledb.continuous) AS
+    SELECT time_bucket('1 second', time) as bucket,
+           symbol, currency,
+           sum(price * qty) / sum(qty) as price,
+           sum(qty) as qty,
+           sum("quoteQty") as "quoteQty",
+           sum(commission) as commission,
+           "commissionAsset",
+           "isBuyer",
+           "isMaker",
+           "isBestMatch",
+           SUM(CASE WHEN "isBuyer" THEN -"quoteQty" ELSE "quoteQty" END) AS total
+    FROM transactions
+    GROUP BY bucket, symbol, currency, "commissionAsset", "isBuyer", "isMaker", "isBestMatch", price \gexec
+
 CREATE MATERIALIZED VIEW PNL_Day
 WITH (timescaledb.continuous) AS
     SELECT time_bucket('1 day', time) as bucket,

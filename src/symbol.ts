@@ -47,6 +47,7 @@ export class Symbol implements Ticker {
 
     public orderInProgress: boolean = false;
     public stakingInProgress: boolean = false;
+    public orderAwaitingBalanceUpdate: boolean = false;
 
     showTradeStartTime?: Date;
 

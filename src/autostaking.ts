@@ -193,7 +193,7 @@ async function getStakedBNSOL(): Promise<number> {
         return 0;
     }
     const staked = stakedInfo.rows.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0);
-    const nonstaked = state.balances['BNSOL'] || 0;
+    const nonstaked = await state.wallet.total('BNSOL');
     return staked + nonstaked;
 }
 

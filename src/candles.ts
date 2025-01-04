@@ -153,7 +153,9 @@ export class LiveCandleData {
         this.currency = currency;
         this.width = width;
         this.api = Binance({ apiKey: process.env.BINANCE_API_KEY, apiSecret: process.env.BINANCE_API_SECRET });
-        if (autoInit) this.init();
+        if (autoInit) {
+            this.init();
+        }
     }
 
     async init() {
@@ -178,6 +180,13 @@ export class LiveCandleData {
                 }
             }
         });
+    }
+
+    close() {
+        if (this.socketHandle) {
+            this.socketHandle();
+            delete this.socketHandle;
+        }
     }
 }
 
