@@ -105,9 +105,67 @@ async function redeemBNSOL(amount: number): Promise<number> {
     return parseFloat(order.cummulativeQuoteQty);
 }
 
+async function stakeWBETH(amount: number): Promise<number> {
+    var order: Order | undefined;
+    try {
+        order = await binance.order({
+            type: OrderType.MARKET,
+            symbol: 'WBETHETH',
+            side: 'BUY',
+            quantity: amount.toFixed(6)
+        });
+    } catch (e) {
+        addLogMessage(`🚫 ${timestampStr()} FAILED TO STAKE ${amount} ETH`);
+        return 0;
+    }
+
+    if (order.status !== 'FILLED') {
+        addLogMessage(chalk.red(`🚫 ${timestampStr()} Failed to buy ${amount} WBETH`));
+        return 0;
+    }
+
+    const executedQty = parseFloat(order.executedQty);
+
+    return await subscribeFlexibleProduct('WBETH', executedQty);
+}
+
+async function redeemWBETH(amount: number): Promise<number> {
+    const accountInfo = await binance.accountInfo();
+    const balance = accountInfo.balances.find(b => b.asset === 'WBETH');
+    if (!balance) {
+        addLogMessage(chalk.red(`🚫 ${timestampStr()} No WBETH balance found`));
+        return 0;
+    }
+
+    var freeBNSOL = parseFloat(balance.free);
+
+    if (freeBNSOL < amount) {
+        amount = freeBNSOL + await redeemFlexibleProduct('WBETH', marketCeil('ETH', amount - freeBNSOL));
+    }
+
+    const order = await binance.order({
+        type: OrderType.MARKET,
+        symbol: 'WBETHETH',
+        side: 'SELL',
+        quantity: formatAssetQuantity('ETH', amount)
+    });
+
+    if (order.status !== 'FILLED') {
+        addLogMessage(chalk.red(`🚫 ${timestampStr()} Failed to sell ${amount} WBETH`));
+        return 0;
+    }
+
+    clearStakingCache('ETH');
+
+    return parseFloat(order.cummulativeQuoteQty);
+}
+
 export async function subscribeFlexibleProduct(asset: string, amount: number): Promise<number> {
     if (asset === 'SOL') {
         return stakeBNSOL(amount);
+    }
+    if (asset === 'ETH') {
+        return stakeWBETH(amount);
     }
 
     const product = await findFlexibleProduct(asset);
@@ -236,6 +294,9 @@ type RedeemResponse = {
 export async function redeemFlexibleProduct(asset: string, amount: number): Promise<number> {
     if (asset === 'SOL') {
         return redeemBNSOL(amount);
+    }
+    if (asset === 'ETH') {
+        return redeemWBETH(amount);
     }
 
     var response: RedeemResponse | undefined;

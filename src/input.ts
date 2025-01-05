@@ -2,10 +2,11 @@ import readline from 'readline';
 import chalk from 'chalk';
 import Fuse from 'fuse.js';
 import Settings, { saveConfigFile } from './settings';
-import { addLogMessage, clearTransactions, drawCandles, printStats, printSymbol, printTrades, printTransactions } from './ui';
+import { addLogMessage, clearTransactions, drawCandles, drawCandlesStatusBar, printStats, printSymbol, printTrades, printTransactions } from './ui';
 import state from './state';
 import { redeemFlexibleProductAll, subscribeFlexibleProductAllFree } from './autostaking';
 import { closeLiveIndicator } from './indicators';
+require('keypress').enableMouse(process.stdout);
 
 var lookupStr = '';
 var lookupClearTimeout: NodeJS.Timer | undefined;
@@ -30,6 +31,8 @@ function addLookupChar(charStr: string) {
         }
     }
 }
+
+const lastClick: { x: number, y: number, time: number } = { x: -1, y: -1, time: 0 };
 
 export default function registerInputHandlers() {
 
@@ -286,6 +289,80 @@ export default function registerInputHandlers() {
                 if (state.selectedRow >= 0) {
                     const asset = Object.keys(state.currencies).sort()[state.selectedRow];
                     state.assets[asset].maxDailyLoss += 5;
+                }
+            }
+        }
+
+        if (code[0] === 27 && code[1] === 91 && code[2] === 77) { // mouse click
+            const x = code[4] - 33;
+            const y = code[5] - 33;
+            if (code[3] === 32) {
+                if ((Date.now() - lastClick.time) < 500
+                    && lastClick.x === x
+                    && lastClick.y === y) {
+                    // double click
+
+                    if (x >= 65 && x <= 68) {
+                        state.assets[Object.keys(state.currencies).sort()[y]].staking =
+                            !state.assets[Object.keys(state.currencies).sort()[y]].staking;
+                    }
+                    if (x >= 75 && x <= 79) {
+                        state.assets[Object.keys(state.currencies).sort()[y]].enableSell =
+                            !state.assets[Object.keys(state.currencies).sort()[y]].enableSell;
+                    }
+
+                    if (x >= 80 && x <= 85) {
+                        state.assets[Object.keys(state.currencies).sort()[y]].enableBuy =
+                            !state.assets[Object.keys(state.currencies).sort()[y]].enableBuy;
+                    }
+                    else if (x <= 100) {
+                        if (!Settings.drawCandles) {
+                            Settings.drawCandles = true;
+                            printTrades();
+                        }
+                    }
+                    return;
+                }
+                lastClick.x = x;
+                lastClick.y = y;
+                lastClick.time = Date.now();
+            }
+
+            if (x > state.candles.XBase
+                && y < state.candles.height
+                && Settings.drawCandles) {  // over candles
+                if (code[3] === 97) { // wheel in
+                    state.candles.scale = Math.min(state.candles.scales.length - 1, state.candles.scale + 1);
+                    delete state.candles.data;
+                    if (state.selectedRow >= 0) {
+                        const selectedSymbol = Object.keys(state.currencies).sort()[state.selectedRow];
+                        drawCandlesStatusBar(selectedSymbol);
+                    }
+                } else if (code[3] === 96) { // wheel out
+                    state.candles.scale = Math.max(0, state.candles.scale - 1);
+                    delete state.candles.data;
+                    if (state.selectedRow >= 0) {
+                        const selectedSymbol = Object.keys(state.currencies).sort()[state.selectedRow];
+                        drawCandlesStatusBar(selectedSymbol);
+                    }
+                }
+            }
+            if (x >= 0
+                && x <= state.candles.XBase
+                && y <= Object.keys(state.currencies).length
+            ) {
+                if (code[3] === 32 || code[3] === 35) {
+                    state.selectedRow = y;
+                }
+                if (code[3] === 35) {
+                    if (y === Object.keys(state.currencies).length) {
+                        if (x >= 3 && x <= 6) {
+                            state.enableSell = !state.enableSell;
+                        }
+                        if (x >= 8 && x <= 11) {
+                            state.enableBuy = !state.enableBuy;
+                        }
+                    }
                 }
             }
         }

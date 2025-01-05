@@ -294,7 +294,7 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
             const current = clamp(state.assets[symbol].price * 0.2 - Math.max(0, value - state.assets[symbol].price + state.assets[symbol].price * 0.1));
             const ratio = current / (state.assets[symbol].price * 0.2);
             return chalk.bgGray(lerpChalk([255, 0, 0], [0, 255, 0], ratio)(
-            verticalBar({ current: current, max: state.assets[symbol].price * 0.2 })));
+                verticalBar({ current: current, max: state.assets[symbol].price * 0.2 })));
             return (diff > 0 ? bgLerp([0, 0, 0], [255, 0, 0], diff) : bgLerp([0, 0, 0], [0, 255, 0], -diff))((Math.abs(diff) < 0.5 ? chalk.white : chalk.black)(((value > state.assets[symbol].price ? '+' : '') + ((value - state.assets[symbol].price) / state.assets[symbol].price * 100).toFixed(2) + '%').padStart(7)));
         }
 
@@ -379,12 +379,12 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
             `${formatIndicator(symbol, indicators.EMA[1].value)}` +
             `${formatIndicator(symbol, indicators.EMA[2].value)}` +
             `${formatIndicator(symbol, indicators.EMA[3].value)}` +
-            ` ${ RSIsymbol }${ chalk.bgGray(chalk.whiteBright('RSI')) }` +
+            ` ${RSIsymbol}${chalk.bgGray(chalk.whiteBright('RSI'))}` +
             `${formatRsiIndicator(indicators.RSI[0].value)}` +
             `${formatRsiIndicator(indicators.RSI[1].value)}` +
             `${formatRsiIndicator(indicators.RSI[2].value)}` +
             `${formatRsiIndicator(indicators.RSI[3].value)}` +
-            ` ${stRSIsymbol}${ chalk.bgGray(chalk.whiteBright('st')) }` +
+            ` ${stRSIsymbol}${chalk.bgGray(chalk.whiteBright('st'))}` +
             `${formatRsiIndicator(indicators.stRSI[0].value)}` +
             `${formatRsiIndicator(indicators.stRSI[1].value)}` +
             `${formatRsiIndicator(indicators.stRSI[2].value)}` +
@@ -397,6 +397,14 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
             readline.clearLine(process.stdout, 1);
         }
     }
+    drawCandlesStatusBar(symbol);
+}
+export async function drawCandlesStatusBar(symbol: string): Promise<void> {
+    const isSelected: boolean = Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow;
+
+    const candlesX: number = state.candles.XBase - 10;
+    const candlesWidth: number = (process.stdout.columns || 120) - candlesX;
+    state.candles.height = Math.round(20 / 80 * candlesWidth);
 
     var statusStr: string = "";
     if (isSelected) {

@@ -149,3 +149,11 @@ process.on('SIGINT', function () {
 
     process.exit();
 });
+
+
+// make `process.stdin` begin emitting "mousepress" (and "keypress") events
+// keypress(process.stdin);
+
+// you must enable the mouse events before they will begin firing
+
+
