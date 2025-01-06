@@ -3,7 +3,7 @@ import cache from 'memory-cache';
 import Settings from './settings';
 import binance from './binance-ext/throttled-binance-api';
 import { CandleChartInterval_LT } from 'binance-api-node';
-import { addLogMessage } from './ui';
+import { log } from './ui';
 
 export class OHLCV {
     open: number[] = [];

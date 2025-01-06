@@ -4,18 +4,96 @@ import state from './state';
 import Settings from './settings';
 import readline from 'readline';
 import candles, { Candle, LiveCandleData } from './candles';
-import { bgLerp, lerpColor, lerpChalk, clamp, getAssetBallance, progressBarText, verticalBar, trimTrailingZeroes, DelayedExecution } from './utils';
+import { bgLerp, lerpColor, lerpChalk, clamp, getAssetBallance, progressBarText, verticalBar, trimTrailingZeroes, DelayedExecution, timestampStr, getAvgBuyPrice, formatAssetQuantity } from './utils';
 import { readProfits, readTransactionLog } from './transactions';
 import { CandleChartInterval_LT } from 'binance-api-node';
 import { getStakedQuantity, getStakingEffectiveAPR, getStakingEffectiveAPRAverage } from './autostaking';
 import { getLiveIndicator, LiveIndicator, LiveOHLCVHistory } from './indicators';
 import { sma, ema, rsi, stochasticrsi } from 'trading-indicator';
+import Trade from './trade';
+import fs from 'fs';
+import GraphemeSplitter from 'grapheme-splitter';
+import wrap from 'word-wrap';
 
-var logMessages: string[] = [];
+const logFileStream = fs.createWriteStream(__dirname + '/config/log.txt', {flags : 'a', encoding: 'utf-8'});
 
-export const addLogMessage = (...msgs: any[]): void => {
-    logMessages.push(msgs.map(msg => msg ? msg.toString() : `${msg}`).join(' '));
-    printTrades();
+export var tradeLog: Trade[] = [];
+type LogLevel = 'info' | 'warn' | 'error';
+
+export class LogMessage {
+    constructor(public message: string, public level: LogLevel = 'info', public time = new Date()) { }
+    serialize(): string {
+        return this.time.toISOString() + ' ' + this.level + ' ' + this.message + '\n';
+    }
+    static deserialize(str: string): LogMessage {
+        const parts = str.split(' ');
+        return new LogMessage(parts.slice(2).join(' '), parts[1] as LogLevel, new Date(parts[0]));
+    }
+    toString(): string {
+        const color = (() => {
+            switch (this.level) {
+                case 'info': return chalk.white;
+                case 'warn': return chalk.yellow;
+                case 'error': return chalk.red;
+                default: return chalk.white;
+            }
+        })();
+        const prefix = (() => {
+            switch (this.level) {
+                case 'info': return '📜';
+                case 'warn': return '📌';
+                case 'error': return '❌';
+                default: return 'ℹ';
+            }
+        })();
+        return prefix + ' ' + timestampStr(this.time) + ' ' + color(this.message);
+    }
+
+    get length(): number {
+
+        const prefix = (() => {
+            switch (this.level) {
+                case 'info': return '📜';
+                case 'warn': return '📌';
+                case 'error': return '❌';
+                default: return 'ℹ';
+            }
+        })();
+        return prefix.length + ' '.length + timestampStr(this.time).length + ' '.length + this.message.length;
+    }
+}
+import readLastLines = require('read-last-lines');
+
+export var messageLog: LogMessage[] = (() => {
+    try {
+        const file = fs.openSync(__dirname + '/config/log.txt', 'r');
+        const logSize = fs.statSync(__dirname + '/config/log.txt').size;
+        const sizeToRead = Math.min(logSize, 10000);
+        const buffer = Buffer.alloc(sizeToRead);
+        fs.readSync(file, buffer, 0, sizeToRead, logSize - sizeToRead);
+        return buffer.toString().split('\n').map(LogMessage.deserialize);
+        // readLastLines.read('config/log.txt', 10000).then(data => messageLog = data.split('\n').map(LogMessage.deserialize));
+        // return fs.readFileSync(__dirname + '/config/log.txt').toString().split('\n').map(LogMessage.deserialize);
+    } catch (e) {
+        return [];
+    }
+})();
+
+export const log = (...msgs: any[]): void => {
+    messageLog.push(new LogMessage(msgs.map(msg => msg ? msg.toString() : `${msg}`).join(' ')));
+    logFileStream.write(messageLog[messageLog.length - 1].serialize());
+    printLog();
+}
+log.warn = (...msgs: any[]): void => {
+    messageLog.push(new LogMessage(msgs.map(msg => msg ? msg.toString() : `${msg}`).join(' '), 'warn'));
+    logFileStream.write(messageLog[messageLog.length - 1].serialize());
+    printLog();
+}
+
+log.err = (...msgs: any[]): void => {
+    messageLog.push(new LogMessage(msgs.map(msg => msg ? msg.toString() : `${msg}`).join(' '), 'error'));
+    logFileStream.write(messageLog[messageLog.length - 1].serialize());
+    printLog();
 }
 
 export const colorizeDeltaUsd = (symbol: string, delta: number): string => {
@@ -127,7 +205,7 @@ export async function printSymbol(symbol: string): Promise<void> {
 
     const deltaUsd: number = state.deltas[symbol] || 0;
     const PNL: number = (await readProfits(symbol, 'all time') || 0) + await getAssetBallance(symbol) * state.assets[symbol].price;
-    //   state.symbols[symbol].pnl = PNL;
+
     const effectiveAPR = await getStakingEffectiveAPR(symbol);
     const loss = {
         current: Math.max(0, state.assets[symbol].maxDailyLoss + (await readProfits(symbol))),
@@ -137,9 +215,12 @@ export async function printSymbol(symbol: string): Promise<void> {
     function remap(a: number, from: number[], to: number[] = [0, 1]): number {
         return (a - from[0]) / (from[1] - from[0]) * (to[1] - to[0]) + to[0];
     }
+    // const buyPrice = await getAvgBuyPrice(symbol);
+    // const buyRatio = clamp((buyPrice - state.assets[symbol].price) / (state.assets[symbol].price * 0.1), -1, 1);
     state.assets[symbol].statusLine = `${state.assets[symbol].orderInProgress?'⌛':'📈'} ${symbol.padEnd(8)} ${makeVelocitySymbol((state.velocities[symbol] || 0))}` +
 
         `${colorizeChangedPart(symbol, state.assets[symbol].price - deltaPrice, state.assets[symbol].price, 13)}` +
+        // `${(buyRatio > 0 ? lerpChalk([200, 200, 200], [255, 200, 200], Math.abs(buyRatio)) : lerpChalk([200, 200, 200], [200, 255, 200], Math.abs(buyRatio)))(formatAssetQuantity(symbol, buyPrice).slice(0, 10).padEnd(13))}` +
 
         str +
         ` ${lerpChalk([200, 200, 200], [100, 255, 100], remap(effectiveAPR, [0, 0.005]))((effectiveAPR * 100).toFixed(2).padStart(5))}` +
@@ -158,11 +239,20 @@ export async function printSymbol(symbol: string): Promise<void> {
        lerpChalk([200, 0, 0], [0, 200, 0], PNL > 0 ? 1 : 0)(PNL.toFixed(2).padStart(9));
 
     const keys: string[] = Object.keys(state.currencies).sort();
-    readline.cursorTo(process.stdout, 0, keys.indexOf(symbol));
-    if (keys.indexOf(symbol) == state.selectedRow) {
-        process.stdout.write(chalk.bgBlackBright(state.assets[symbol].statusLine) + ' ');
-    } else {
-        process.stdout.write(state.assets[symbol].statusLine + ' ');
+    const lineIndex = clamp(keys.indexOf(symbol) - state.symbolsScroll, 0, keys.length - 1);
+    const scrollBarChar = scrollBar({
+        position: state.symbolsScroll,
+        total: Object.keys(state.assets).length,
+        height: state.symbolsHeight
+    }).split('')[lineIndex];
+
+    if (lineIndex >= 0 && lineIndex < state.symbolsHeight) {
+        readline.cursorTo(process.stdout, 0, lineIndex);
+        if (keys.indexOf(symbol) == state.selectedRow) {
+            process.stdout.write(chalk.bgBlackBright(state.assets[symbol].statusLine) + scrollBarChar);
+        } else {
+            process.stdout.write(state.assets[symbol].statusLine + scrollBarChar);
+        }
     }
 
     if ((Settings.drawCandles && state.selectedRow >= 0) && Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow) {
@@ -207,9 +297,9 @@ export const printStats = async (symbol: string, deltaPrice?: number): Promise<v
         chalk.bgRgb(50, 25, 25)(
             `${chalk.red('↓')}${chalk.whiteBright('<')}${chalk.green('↑')}${chalk.whiteBright('>')}  ` +
             `${chalk.red('↓')}${chalk.whiteBright('-')}${chalk.green('↑')}${chalk.whiteBright('=')}   ` +
-            `${chalk.red('↓')}${chalk.whiteBright('[')}${chalk.green('↑')}${chalk.whiteBright(']')} `);
-    readline.cursorTo(process.stdout, 0, Object.keys(state.currencies).length);
-    process.stdout.write(str);
+            `${chalk.red('↓')}${chalk.whiteBright('[')}${chalk.green('↑')}${chalk.whiteBright(']')} `) + ' '.repeat(10);
+    readline.cursorTo(process.stdout, 0, state.symbolsHeight);
+    process.stdout.write(chalk.bgRgb(64, 64, 64)(str));
 
 }
 
@@ -235,7 +325,7 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
     }
     __drawCandlesLastCallTime = Date.now();
     const callId = ++__drawCandlesCallCounter;
-    const candlesX: number = state.candles.XBase - 10;
+    const candlesX: number = state.candles.XBase;
     const candlesWidth: number = (process.stdout.columns || 120) - candlesX;
     state.candles.height = Math.round(20 / 80 * candlesWidth);
 
@@ -254,7 +344,12 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
         state.candles.data = new LiveCandleData(symbol, currency,
             state.candles.scales[state.candles.scale] as CandleChartInterval_LT,
             candlesWidth, false);
-        await state.candles.data.init();
+        try {
+            await state.candles.data.init();
+        } catch (e) {
+            delete state.candles.data;
+            return;
+        }
         // state.candles.data = await candles.getCandles(symbol, state.candles.scales[state.candles.scale] as CandleChartInterval_LT, candlesWidth);
         if (callId !== __drawCandlesCallCounter) {
             return;
@@ -283,6 +378,14 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
     const indicatorsOffset = 1;
     if (isSelected && state.assets[symbol].indicatorValues.SMAs) {
 
+        const calcRelativeMA = (symbol: string, value: number): number => {
+            value = value || 0;
+            let diff: number = (value - state.assets[symbol].price) / state.assets[symbol].price * 100;
+            diff = Math.min(1.0, Math.max(-1.0, diff / 10));
+
+            const current = clamp(state.assets[symbol].price * 0.2 - Math.max(0, value - state.assets[symbol].price + state.assets[symbol].price * 0.1));
+            return clamp(current / (state.assets[symbol].price * 0.2));
+        }
         const formatIndicator = (symbol: string, value: number): string => {
             if (isNaN(value)) {
                 return ' ';
@@ -389,6 +492,18 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
             `${formatRsiIndicator(indicators.stRSI[1].value)}` +
             `${formatRsiIndicator(indicators.stRSI[2].value)}` +
             `${formatRsiIndicator(indicators.stRSI[3].value)}`);
+
+        const verdicts = ['SELL', 'SELL', 'HOLD', 'BUY', 'BUY'];
+        const alpha = (indicators.SMA.reduce((acc, x) => acc + (calcRelativeMA(symbol, x.value) || 0), 0) / indicators.SMA.length +
+            indicators.EMA.reduce((acc, x) => acc + (calcRelativeMA(symbol, x.value) || 0), 0) / indicators.EMA.length +
+            indicators.RSI.reduce((acc, x) => acc + clamp(x.value / 100 || 0), 0) / indicators.RSI.length +
+            indicators.stRSI.reduce((acc, x) => acc + clamp(x.value / 100 || 0), 0) / indicators.stRSI.length) / 4;
+        str[0] += ' ' + lerpChalk([255, 125, 125], [125, 255, 125], alpha)(verdicts[Math.min(verdicts.length - 1, Math.max(0, Math.round(alpha * (verdicts.length - 1))))]);
+    const buyPrice = await getAvgBuyPrice(symbol);
+    const buyRatio = clamp((buyPrice - state.assets[symbol].price) / (state.assets[symbol].price * 0.1), -1, 1);
+
+        str[0] += `${(buyRatio > 0 ? lerpChalk([200, 200, 200], [255, 200, 200], Math.abs(buyRatio)) : lerpChalk([200, 200, 200], [200, 255, 200], Math.abs(buyRatio)))(formatAssetQuantity(symbol, buyPrice).slice(0, 10).padEnd(13))}`;
+
         // readline.clearLine(process.stdout, 1);
 
         for (const [index, line] of str.entries()) {
@@ -402,7 +517,7 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
 export async function drawCandlesStatusBar(symbol: string): Promise<void> {
     const isSelected: boolean = Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow;
 
-    const candlesX: number = state.candles.XBase - 10;
+    const candlesX: number = state.candles.XBase;
     const candlesWidth: number = (process.stdout.columns || 120) - candlesX;
     state.candles.height = Math.round(20 / 80 * candlesWidth);
 
@@ -453,28 +568,78 @@ export async function drawCandlesStatusBar(symbol: string): Promise<void> {
 }
 
 export function printTrades(): void {
-    clearTransactions();
-    while (logMessages.length > (process.stdout.rows || 80)) {
-        logMessages.shift();
+
+    const maxLines = (Settings.drawCandles && state.selectedRow >= 0)
+        ? (process.stdout.rows || 80) - state.candles.height - 3
+        : (process.stdout.rows || 80) - 1;
+    state.tradeScroll = Math.min(state.tradeScroll, Math.max(0, tradeLog.length - maxLines));
+
+    const pos = Math.min(Math.max(0, state.tradeScroll), Math.max(0, tradeLog.length - maxLines))
+    const lines = tradeLog.slice(pos, pos + maxLines);
+
+    for (var i = 0; i < lines.length; ++i) {
+        const line = lines[i];
+        readline.cursorTo(process.stdout,
+            state.candles.XBase,
+            (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i : i);
+        process.stdout.write(line.toString() + ' '.repeat((process.stdout.columns || 120) - state.candles.XBase - line.toPlainTextString().length - 2));
     }
 
-    for (let i = 0; i < logMessages.length; i++) {
+    scrollBar({ position: pos, total: tradeLog.length, height: maxLines }).split('').forEach((c, i) => {
         readline.cursorTo(process.stdout,
-            state.candles.XBase - 10,
+            process.stdout.columns! - 1,
             (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i : 1 + i);
-        process.stdout.write(logMessages[logMessages.length - 1 - i]);
-        readline.clearLine(process.stdout, 1);
+        process.stdout.write((state.tradesScrollHover ? chalk.whiteBright : chalk.white)(c));
+    });
+
+    printLog();
+}
+
+function chars(str: string): string[] {
+    const res = [];
+    for (const c of str) {
+        res.push(c);
     }
+    return res;
+}
+function strlen(str: string): number {
+    var res = 0;
+    for (const c of str) {
+        res++;
+    }
+    return res;
+    // return new GraphemeSplitter().splitGraphemes(str).length;
+}
+function substr(str: string, start?: number, end?: number): string {
+    return chars(str).slice(start, end).join('');
+}
+function strpad(str: string, len: number, char: string = ' ') {
+    return str + char.repeat(len - strlen(str));
+}
+export async function printLog() {
+
+    const maxLines = (process.stdout.rows || 80) - state.symbolsHeight - 1;
+    state.logScroll = Math.min(state.logScroll, Math.max(0, messageLog.length - maxLines));
+
+    const pos = Math.min(Math.max(0, state.logScroll), Math.max(0, messageLog.length - maxLines))
+    const lines = messageLog.slice(0).reverse().slice(pos, pos + maxLines);
+
+    for (var i = 0; i < lines.length; ++i) {
+        const line: string = substr(lines[i].toString(), 0, state.candles.XBase - 1);
+        readline.cursorTo(process.stdout, 0, state.symbolsHeight + 1 + i);
+        process.stdout.write(line + ' '.repeat(Math.max(0, state.candles.XBase - lines[i].length)));
+    }
+
+    scrollBar({ position: pos, total: messageLog.length, height: maxLines }).split('').forEach((c, i) => {
+        readline.cursorTo(process.stdout, state.candles.XBase - 1, state.symbolsHeight + 1 + i);
+        process.stdout.write((state.logScrollHover ? chalk.whiteBright : chalk.white)(c));
+    });
 }
 
 export async function printTransactions(symbol?: string): Promise<void> {
-    const trades = await readTransactionLog(symbol, (Settings.drawCandles && state.selectedRow >= 0)
-        ? (process.stdout.rows || 120) - state.candles.height - 2
-        : (process.stdout.rows || 120) - 1);
-    logMessages = [];
-    for (const trade of trades.reverse()) {
-        addLogMessage(trade.toString());
-    }
+    tradeLog = await readTransactionLog(symbol, 100);
+    state.tradeScroll = 0;
+    printTrades();
 }
 export async function clearTransactions(): Promise<void> {
     if (Settings.drawCandles && state.selectedRow >= 0) {
@@ -484,7 +649,7 @@ export async function clearTransactions(): Promise<void> {
         }
     } else {
         for (var i = 0; i < (process.stdout.rows || 120); i++) {
-            readline.cursorTo(process.stdout, state.candles.XBase - 10, i);
+            readline.cursorTo(process.stdout, state.candles.XBase, i);
             readline.clearLine(process.stdout, 1);
         }
     }
@@ -494,3 +659,105 @@ export async function clearTransactions(): Promise<void> {
 ┃     ┃
 ┗ ━ ╋ ┛
 */
+/**
+│
+╽
+┃
+╿
+│
+const UP_W: string[] = ['╷', '│', '╽', '┃'];
+const DOWN_W: string[] = ['╵', '│', '╿', '┃'];
+const UP_B: string[] = [' ', ' ', '╻', '┃'];
+const DOWN_B: string[] = [' ', ' ', '╹', '┃'];
+ */
+function scrollBar(value: { position: number, total: number, height: number }) {
+
+    if (value.total < value.height) {
+        return '┃'.repeat(value.height);
+    }
+
+    const double = '┃'.repeat(value.height * 2).split('').map((_, i) => {
+        const start = i / value.height / 2;
+        const end = (i + 1) / value.height / 2;
+
+        if (start <= clamp(value.position / value.total) &&
+            clamp(value.position / value.total) <= end) {
+            return '┃';
+        }
+        if (start <= clamp((value.position + value.height) / value.total) &&
+            clamp((value.position + value.height) / value.total) <= end) {
+            return '┃';
+        }
+        if (start >= clamp(value.position / value.total) &&
+            end <= clamp((value.position + value.height) / value.total)) {
+            return '┃';
+        }
+        if (start <= clamp(value.position / value.total) &&
+            end >= clamp((value.position + value.height) / value.total)) {
+            return '┃';
+        }
+
+        return '│';
+    });
+
+    return '┃'.repeat(value.height).split('').map((_, i) => {
+        const start = double[i * 2];
+        const end = double[i * 2 + 1];
+        switch (`${start}${end}`) {
+            case '┃│': return '╿';
+            case '│┃': return '╽';
+            case '││': return '│';
+            case '┃┃': return '┃';
+        }
+        return '│';
+    }).join('');
+    /*
+    for (var i = 0; i < value.height / 2; i++) {
+
+        const start = double[i * 2];
+        const end = double[i * 2 + 1];
+        switch (`${start}${end}`) {
+            case '┃│': double[i * 2] = '┏'; double[i * 2 + 1] = '┓'; break;
+            case '│┃': double[i * 2] = '┗'; double[i * 2 + 1] = '┛'; break;
+            case '││': double[i * 2] = '┠'; double[i * 2 + 1] = '┨'; break;
+            case '┃┃': double[i * 2] = '┠'; double[i * 2 + 1] = '┨'; break;
+        }
+        const start = i / value.height;
+        const end = (i + 1) / value.height;
+
+        if (end > (value.position + value.height) / value.total &&
+            ((start + end) / 2) >= (value.position + value.height) / value.total) {
+            double[i] = '╿';
+        }
+
+        if (start < value.position / value.total &&
+            (start + end) / 2 >= value.position / value.total) {
+            double[i] = '╽';
+        }
+    }
+
+    return '┃'.repeat(value.height).split('').map((_, i) => {
+        const start = i / value.height;
+        const end = (i + 1) / value.height;
+
+        if (end > (value.position + value.height) / value.total &&
+        // ((start + end) / 2) >= (value.position + value.height) / value.total) {
+            ((start + end) / 2) <= (value.position + value.height) / value.total) {
+            // end >= (value.position + value.height) / value.total) {
+            return '╿';
+        }
+
+        if (start < value.position / value.total &&
+            (start + end) / 2 >= value.position / value.total) {
+            return '╽';
+        }
+
+        if (start >= clamp(value.position / value.total) &&
+            end <= clamp((value.position + value.height) / value.total)) {
+            return '┃';
+        }
+
+        return '│';
+    }).join('');
+    */
+}

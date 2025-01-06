@@ -1,8 +1,8 @@
 import cache from 'memory-cache';
 import dotenv from 'dotenv';
 import state from './state';
-import { addLogMessage, printSymbol, printTrades, printTransactions } from './ui';
-import { pullNewTransactions, refreshMaterializedViews, updateTransactionsForAllSymbols } from './transactions';
+import { log, printSymbol, printTrades, printTransactions } from './ui';
+import { pullNewTransactions, readTransactionLog, refreshMaterializedViews, updateTransactionsForAllSymbols } from './transactions';
 import Symbol from './symbol';
 import tick from './tick';
 import readline from 'readline';
@@ -14,7 +14,7 @@ import { clearStakingCache, getStakingAccount } from './autostaking';
 
 dotenv.config();
 import binance from './binance-ext/throttled-binance-api';
-import { bgLerp, circleIndicator, lerpChalk, lerpColor, limitIndicator, progressBar, verticalBar } from './utils';
+import { bgLerp, circleIndicator, lerp, lerpChalk, lerpColor, limitIndicator, progressBar, verticalBar } from './utils';
 import chalk from 'chalk';
 
 async function updateStepSize(symbol: string): Promise<void> {
@@ -79,7 +79,10 @@ binance.init().then(async () => {
         printTransactions(state.selectedRow >= 0 ? Object.keys(state.currencies).sort()[state.selectedRow] : undefined);
     });
 
+    // process.stdout.write('\u001B[?1000h');
+    // ESC[?100Xh
     process.stdout.write('\u001B[?25l');
+
 
     binance.ws.ticker(allSymbols.map(k => `${k}${Settings.stableCoin}`), async priceInfo => {
         drawIndicators();
@@ -88,7 +91,7 @@ binance.init().then(async () => {
 
         if (!(symbol in state.assets)) {
             state.assets[symbol] = new Symbol(symbol, priceInfo);
-            updateStepSize(symbol).catch(e => addLogMessage(`Failed to update step size for ${symbol}`));
+            updateStepSize(symbol).catch(e => log.err(`Failed to update step size for ${symbol}`));
         } else {
             state.assets[symbol].update(priceInfo);
         }
@@ -123,7 +126,7 @@ async function drawIndicators() {
         return;
     }
     __drawIndicators_lastCall = now;
-``
+
     const str = chalk.bgRgb(32, 32, 32)(circleIndicator({
         current: binance.simpleEarn.__flexibleRateLimiter.getTokensRemaining(), max: 1
     }) + ' ' + [
@@ -140,20 +143,3 @@ async function drawIndicators() {
     readline.cursorTo(process.stdout, process.stdout.columns!-12, process.stdout.rows! - 1);
     process.stdout.write(str);
 }
-
-
-//handle ctrl+c
-process.on('SIGINT', function () {
-    // execute "tmux detach -t tradebot"
-    const { exec } = require('child_process');
-
-    process.exit();
-});
-
-
-// make `process.stdin` begin emitting "mousepress" (and "keypress") events
-// keypress(process.stdin);
-
-// you must enable the mouse events before they will begin firing
-
-

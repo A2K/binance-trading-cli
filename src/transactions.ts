@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import postgres, { PostgresError } from 'postgres';
 import Trade from './trade';
 import Settings from './settings';
-import { addLogMessage } from './ui';
+import { log } from './ui';
 import { clearStakingCache, getStakingAccount } from './autostaking';
 import cache from 'memory-cache';
 
@@ -90,9 +90,11 @@ export async function pullNewTransactions(pair: string): Promise<void> {
         return;
     }
 
-    if (trades.length === 1 && trades[0].id === fromId) {
+    if (trades.length === 0 || (trades.length === 1 && trades[0].id === fromId)) {
         return;
     }
+
+    log(`Received ${trades.length} new transactions for ${pair}`);
 
     await Promise.all(trades.map(async trade => await sql`
         INSERT INTO transactions
@@ -158,7 +160,7 @@ export async function readTransactionLog(symbol?: string, maxItems: number = 100
             : await sql`SELECT bucket as time, * FROM transactions_agg ORDER BY time DESC limit ${maxItems}`;
         return data.map(row => new Trade(row));
     } catch (e: any) {
-        addLogMessage('readTransactionLogFailed:', e.toString());
+        log.err('readTransactionLogFailed:', e.toString());
     }
     return [];
 }

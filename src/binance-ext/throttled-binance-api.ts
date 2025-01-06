@@ -5,7 +5,7 @@ import Binance, { Account, CandleChartResult, CandlesOptions, ExchangeInfo, Exch
 import { RateLimiter, RateLimiterOpts } from "limiter";
 import SimpleEarn from "./simple-earn-api";
 import StakingSOL from "./staking-sol";
-import { addLogMessage } from '../ui';
+import { log } from '../ui';
 import cache from 'memory-cache';
 
 function intervalToMs(interval: RateLimitInterval_LT): number {

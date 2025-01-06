@@ -81,18 +81,24 @@ class State {
             scales: ['1s', '1m', '15m', '1h', '4h', '1d', '1w', '1M'],
             scale: 1,
             height: -1,
-            XBase: 107
+            XBase: 97
         };
     enableSell: boolean = false;
     enableBuy: boolean = false;
     steps: number[] = [1, 5, 10, 25, 50, 100, 500, 1000];
     step: number = 5;
+    tradeScroll: number = 0;
+    logScroll: number = 0;
+    tradesScrollHover: boolean = false;
+    logScrollHover: boolean = false;
     constructor() {
         this.currencies = getConfig('currencies');
         if ('BNSOL' in this.currencies) {
             delete this.currencies['BNSOL'];
         }
     }
+    symbolsScroll: number = 0;
+    symbolsHeight: number = 30;
 }
 
 const state = new State();

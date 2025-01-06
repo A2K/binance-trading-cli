@@ -2,12 +2,14 @@ import { OrderType } from 'binance-api-node';
 import dotenv from 'dotenv';
 import state from './state';
 import { formatAssetQuantity, marketCeil, timestampStr } from './utils';
-import { addLogMessage } from './ui';
+import { log } from './ui';
 import Settings from './settings';
-import { redeemFlexibleProduct, subscribeFlexibleProductAllFree } from './autostaking';
+import { clearStakingCache, redeemFlexibleProduct, subscribeFlexibleProductAllFree } from './autostaking';
 
 dotenv.config();
 import binance from './binance-ext/throttled-binance-api';
+import { pullNewTransactions, refreshMaterializedViews } from './transactions';
+import chalk from 'chalk';
 
 export async function order(symbol: string, quantity: number): Promise<boolean> {
     if (quantity < 0) {
@@ -17,7 +19,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
             try {
                 await redeemFlexibleProduct(symbol, amountToUnstake);
             } catch (e) {
-                addLogMessage(`🚫 ${timestampStr()} FAILED TO REDEEM ${amountToUnstake} ${symbol}`)
+                log.err(`Failed to redeem ${amountToUnstake} ${symbol}:`, e);
             }
         }
     } else {
@@ -26,22 +28,25 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
             try {
                 await redeemFlexibleProduct(Settings.stableCoin, marketCeil(symbol, quantity - await state.wallet.free(Settings.stableCoin)));
             } catch (e) {
-                addLogMessage(`🚫 ${timestampStr()} FAILED TO REDEEM ${quantity - await state.wallet.free(Settings.stableCoin)} ${Settings.stableCoin}`);
+                log.err(`Failed to redeem ${quantity - await state.wallet.free(Settings.stableCoin)} ${Settings.stableCoin}:`, e);
             }
         }
     }
 
     state.assets[symbol].stakingInProgress = false;
 
+    const orderQuantity = formatAssetQuantity(symbol, Math.abs(quantity));
+    log(`Creating MARKET order to ${quantity >= 0 ? 'BUY' : 'SELL'} ${chalk.yellow(orderQuantity)} ${chalk.whiteBright(symbol)}`);
+
     const completedOrder = await binance.order({
         symbol: `${symbol}${Settings.stableCoin}`,
         side: quantity >= 0 ? 'BUY' : 'SELL',
-        quantity: formatAssetQuantity(symbol, Math.abs(quantity)),
+        quantity: orderQuantity,
         type: OrderType.MARKET,
     });
 
     if (!completedOrder || completedOrder.status === 'EXPIRED') {
-        addLogMessage(`🚫 ${timestampStr()} FAILED TO ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${Math.abs(quantity)} ${symbol}`);
+        log.err(`Fail to ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${Math.abs(quantity)} ${symbol}`);
         return false;
     }
 
@@ -52,7 +57,13 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     }
 
     state.wallet.markOutOfDate(symbol);
+
+    await pullNewTransactions(symbol);
+    await refreshMaterializedViews();
+    clearStakingCache(symbol);
+
     state.assets[symbol].orderInProgress = false;
+    log(`Order completed: ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${Math.abs(quantity)} ${symbol}`);
 
     return true;
 }

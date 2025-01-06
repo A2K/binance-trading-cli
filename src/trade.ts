@@ -53,7 +53,15 @@ export class Trade implements MyTrade {
         this.isBestMatch = row.isBestMatch;
     }
 
+    toPlainTextString(): string {
+        return `${(this.isBuyer ? 'B' : 'S')} ${timestampStr(this.date)} ` +
+            `${((this.isBuyer ? '-' : '+') + Math.abs(this.quoteQuantity).toFixed(2))} ${('USDT')} ` +
+            `${((this.isBuyer ? '+' : '-') + formatAssetQuantity(this.symbol, Math.abs(this.quantity)))} ${(this.symbol)} at ${(formatAssetQuantity(this.symbol, parseFloat(this.price)))} ` +
+            (`fee ${(this.commission)} ${(this.commissionAsset)}`)
+    }
+
     toString(): string {
+
         return `${(this.isBuyer ? '🪙' : '💵')} ${timestampStr(this.date)} ` +
             `${(this.isBuyer ? chalk.redBright : chalk.greenBright)((this.isBuyer ? '-' : '+') + Math.abs(this.quoteQuantity).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
             `${(this.isBuyer ? chalk.green : chalk.red)((this.isBuyer ? '+' : '-') + formatAssetQuantity(this.symbol, Math.abs(this.quantity)))} ${chalk.bold(this.symbol)} at ${chalk.yellowBright(formatAssetQuantity(this.symbol, parseFloat(this.price)))} ` +

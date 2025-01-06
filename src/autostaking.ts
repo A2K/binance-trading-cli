@@ -6,7 +6,7 @@ import chalk from 'chalk';
 import cache from 'memory-cache';
 
 import 'source-map-support/register';
-import { addLogMessage } from './ui';
+import { log } from './ui';
 import { formatAssetQuantity, marketCeil, timestampStr } from './utils';
 import state from './state';
 
@@ -60,12 +60,12 @@ async function stakeBNSOL(amount: number): Promise<number> {
             quantity: amount.toFixed(6)
         });
     } catch (e) {
-        addLogMessage(`🚫 ${timestampStr()} FAILED TO STAKE ${amount} SOL`);
+        log.err(`FAILED TO STAKE ${amount} SOL`);
         return 0;
     }
 
     if (order.status !== 'FILLED') {
-        addLogMessage(chalk.red(`🚫 ${timestampStr()} Failed to buy ${amount} BNSOL`));
+        log.err(`Failed to buy ${amount} BNSOL`);
         return 0;
     }
 
@@ -78,7 +78,7 @@ async function redeemBNSOL(amount: number): Promise<number> {
     const accountInfo = await binance.accountInfo();
     const balance = accountInfo.balances.find(b => b.asset === 'BNSOL');
     if (!balance) {
-        addLogMessage(chalk.red(`🚫 ${timestampStr()} No BNSOL balance found`));
+        log.err(`No BNSOL balance found`);
         return 0;
     }
 
@@ -96,7 +96,7 @@ async function redeemBNSOL(amount: number): Promise<number> {
     });
 
     if (order.status !== 'FILLED') {
-        addLogMessage(chalk.red(`🚫 ${timestampStr()} Failed to sell ${amount} BNSOL`));
+        log.err(`Failed to sell ${amount} BNSOL`);
         return 0;
     }
 
@@ -115,12 +115,12 @@ async function stakeWBETH(amount: number): Promise<number> {
             quantity: amount.toFixed(6)
         });
     } catch (e) {
-        addLogMessage(`🚫 ${timestampStr()} FAILED TO STAKE ${amount} ETH`);
+        log.err(`FAILED TO STAKE ${amount} ETH`);
         return 0;
     }
 
     if (order.status !== 'FILLED') {
-        addLogMessage(chalk.red(`🚫 ${timestampStr()} Failed to buy ${amount} WBETH`));
+        log.err(`Failed to buy ${amount} WBETH`);
         return 0;
     }
 
@@ -133,7 +133,7 @@ async function redeemWBETH(amount: number): Promise<number> {
     const accountInfo = await binance.accountInfo();
     const balance = accountInfo.balances.find(b => b.asset === 'WBETH');
     if (!balance) {
-        addLogMessage(chalk.red(`🚫 ${timestampStr()} No WBETH balance found`));
+        log.err(`No WBETH balance found`);
         return 0;
     }
 
@@ -151,7 +151,7 @@ async function redeemWBETH(amount: number): Promise<number> {
     });
 
     if (order.status !== 'FILLED') {
-        addLogMessage(chalk.red(`🚫 ${timestampStr()} Failed to sell ${amount} WBETH`));
+        log.err(`Failed to sell ${amount} WBETH`);
         return 0;
     }
 
@@ -170,7 +170,7 @@ export async function subscribeFlexibleProduct(asset: string, amount: number): P
 
     const product = await findFlexibleProduct(asset);
     if (!product) {
-        addLogMessage(chalk.red(`🚫 ${timestampStr()} No flexible product found for ${asset}`));
+        log.err(`No flexible product found for ${asset}`);
         return 0;
     }
 
@@ -179,13 +179,15 @@ export async function subscribeFlexibleProduct(asset: string, amount: number): P
     const response = await binance.simpleEarn.flexibleSubscribe({ productId, amount, autoSubscribe: false }) as FlexibleSubscriptionPurchase;
     if (response.success) {
 
-        addLogMessage(`💰 ${timestampStr()} STAKED ${chalk.yellow(formatAssetQuantity(asset, amount))} ${chalk.whiteBright(asset)}`);
+        log(`💰 STAKED ${chalk.yellow(formatAssetQuantity(asset, amount))} ${chalk.whiteBright(asset)}`);
 
         clearStakingCache(asset);
 
+        state.wallet.markOutOfDate(asset);
+
         return amount;
     } else {
-        addLogMessage(chalk.red(`🚫 ${timestampStr()} Failed to stake ${amount} ${asset}`));
+        log.err(`Failed to stake ${amount} ${asset}`);
         return 0;
     }
 }
@@ -258,7 +260,7 @@ async function getStakedBNSOL(): Promise<number> {
 export async function getStakedAssets(): Promise<string[]> {
     const account = await getStakingAccount();
     if (!account) {
-        addLogMessage(chalk.red('No staking account found'));
+        log.err('No staking account found');
         return [];
     }
     return account.rows.map(r => r.asset);
@@ -277,7 +279,7 @@ export async function getStakedQuantity(asset: string): Promise<number> {
 
     const stakedInfo = await getStakingAccount(asset);
     if (!stakedInfo) {
-        addLogMessage(chalk.red(`No staked info found for ${asset}`));
+        log.err(`No staked info found for ${asset}`);
         return 0;
     }
 
@@ -303,14 +305,14 @@ export async function redeemFlexibleProduct(asset: string, amount: number): Prom
 
     const stakedInfo = await getStakingAccount(asset);
     if (!stakedInfo) {
-        addLogMessage(chalk.red(`No staked info found for ${asset}`));
+        log.err(`No staked info found for ${asset}`);
         return amount;
     }
 
     const totalStaked = stakedInfo.rows.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0);
 
     if (totalStaked < amount) {
-        addLogMessage(chalk.red(`Not enough ${asset} staked (${stakedInfo.total} < ${amount})`));
+        log.err(`Not enough ${asset} staked (${stakedInfo.total} < ${amount})`);
         return amount;
     }
 
@@ -321,7 +323,7 @@ export async function redeemFlexibleProduct(asset: string, amount: number): Prom
         try {
             response = await binance.simpleEarn.flexibleRedeem({ productId: row.productId, amount });
         } catch (e) {
-            console.error(chalk.red(`Failed to redeem ${rowAmount} ${asset}:`), e);
+            log.err(`Failed to redeem ${rowAmount} ${asset}:`, e);
             break;
         }
 
@@ -331,9 +333,10 @@ export async function redeemFlexibleProduct(asset: string, amount: number): Prom
         }
     }
 
-    addLogMessage(`💲 ${timestampStr()} UNSTAKED ${chalk.yellow(formatAssetQuantity(asset, amount))} ${chalk.whiteBright(asset)}`);
+    log(`💲 REDEEMED ${chalk.yellow(formatAssetQuantity(asset, amount))} ${chalk.whiteBright(asset)}`);
 
     clearStakingCache(asset);
+    state.wallet.markOutOfDate(asset);
 
     return leftToRedeem;
 }
@@ -350,7 +353,7 @@ export async function subscribeFlexibleProductAllFree(asset: string): Promise<nu
     const accountInfo = await binance.accountInfo();
     const balance = accountInfo.balances.find(b => b.asset === asset);
     if (!balance) {
-        addLogMessage(chalk.red(`No balance found for ${asset}`));
+        log.err(`No balance found for ${asset}`);
         return 0;
     }
 
@@ -360,7 +363,8 @@ export async function subscribeFlexibleProductAllFree(asset: string): Promise<nu
     }
 
     const staked = await subscribeFlexibleProduct(asset, amountToStake);
-    balance.free = (parseFloat(balance.free) - staked).toFixed(8);
+    state.wallet.markOutOfDate(asset);
+    log(`💰 STAKED ${chalk.yellow(formatAssetQuantity(asset, staked))} ${chalk.whiteBright(asset)}`);
     return staked;
 }
 

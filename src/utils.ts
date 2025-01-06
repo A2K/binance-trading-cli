@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import state from './state';
 import { getStakedQuantity } from './autostaking';
 import cache from 'memory-cache';
+import { readTransactionLog } from './transactions';
 
 export const clamp = (value: number, min: number = 0.0, max: number = 1.0): number => Math.min(max, Math.max(min, value));
 export const lerp = (from: number, to: number, alpha: number): number => from * (1.0 - clamp(alpha)) + to * clamp(alpha);
@@ -120,4 +121,20 @@ export function circleIndicator(limit = { current: 0, max: 1 }, colorA = [255, 0
   const symbols = ['○', '◔', '◑', '◕', '●'];
   const fraction = clamp(limit.current / limit.max);
   return lerpChalk(colorA, colorB, fraction)(symbols[Math.round((symbols.length - 1) * fraction)]);
+}
+
+export const getAvgBuyPrice = async (symbol: string): Promise<number> => {
+  const transactions = (await readTransactionLog(symbol, undefined)).reverse();
+  var currentAvg = 0;
+  var currentSum = 0;
+  for (const transaction of transactions) {
+      if (transaction.isBuyer) {
+          const ratio = transaction.quantity / (Math.abs(currentSum) + Math.abs(transaction.quantity));
+          currentAvg = currentAvg * clamp(1.0 - ratio) + parseFloat(transaction.price) * ratio;
+          currentSum += transaction.quantity;
+      } else {
+          currentSum -= transaction.quantity;
+      }
+  }
+  return currentAvg;
 }

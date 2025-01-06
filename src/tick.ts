@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import state from './state';
 import { printStats } from './ui';
 import { getAssetBallance, lerp, marketRound, timestampStr } from './utils';
-import { addLogMessage } from './ui';
+import { log } from './ui';
 import { order } from './order';
 import { readProfits } from './transactions';
 import { Ticker } from 'binance-api-node';
@@ -77,7 +77,7 @@ export async function tick(priceInfo: Ticker): Promise<void> {
                     && Math.abs(quantity) > state.assets[symbol].minQty) {
 
                     if (process.argv.includes('--dry-run')) {
-                        addLogMessage(
+                        log(
                             `🚀 ${quantity} ${symbol} ` +
                             ` -> ${(quantity * state.assets[symbol].price).toFixed(2)} USDT ` +
                             `min ${-(targetAmount * 0.00125)} ` +
@@ -97,13 +97,13 @@ export async function tick(priceInfo: Ticker): Promise<void> {
 
                 } else if (forceTrade) {
                     if (Math.abs(quantity * state.assets[symbol].price) < state.assets[symbol].minNotional) {
-                        addLogMessage(`🚫 ${timestampStr()} CAN'T BUY ${chalk.yellowBright(Math.abs(quantity).toPrecision(6))} ` +
+                        log.err(`CAN'T BUY ${chalk.yellowBright(Math.abs(quantity).toPrecision(6))} ` +
                             `${chalk.whiteBright(symbol)} at ${chalk.whiteBright(currentPrice.toPrecision(6))} ` +
                             `for ${chalk.yellowBright(Math.abs(quantity * currentPrice).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
                             `because ${chalk.bold('total')} (${Math.abs(quantity * state.assets[symbol].price).toFixed(2)} ${chalk.whiteBright('USDT')}) ` +
                             `is less than ${chalk.whiteBright(state.assets[symbol].minNotional.toFixed(2))} ${chalk.whiteBright('USDT')} (${chalk.bold('minNotional')})`);
                     } else {
-                        addLogMessage(`🚫 ${timestampStr()} CAN'T BUY ${Math.abs(quantity)} ${symbol} at ${currentPrice} ` +
+                        log.err(`CAN'T BUY ${Math.abs(quantity)} ${symbol} at ${currentPrice} ` +
                             `for ${chalk.yellowBright(Math.abs(quantity * currentPrice).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
                             `because ${chalk.bold('quantity')} (${Math.abs(quantity).toPrecision(6)} ${chalk.whiteBright(symbol)}) ` +
                             `is less than ${chalk.whiteBright(state.assets[symbol].minNotional.toPrecision(6))} ${chalk.whiteBright(symbol)} (${chalk.bold('minQty')})`);
@@ -111,7 +111,7 @@ export async function tick(priceInfo: Ticker): Promise<void> {
                 }
             }
         } catch (e) {
-            addLogMessage('🚫 TRADE FAILED: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ', e);
+            log.err('TRADE FAILED: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ', e);
         }
     }
 }
