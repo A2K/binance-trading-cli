@@ -19,6 +19,7 @@ const sql = postgres({
 sql`SET client_min_messages TO WARNING;`
 
 import binance from './binance-ext/throttled-binance-api';
+import chalk from 'chalk';
 
 async function getTrades(symbol: string, fromId: number = 0): Promise<MyTrade[]> {
     return binance.myTrades({ symbol, fromId, limit: 1000 });
@@ -94,7 +95,7 @@ export async function pullNewTransactions(pair: string): Promise<void> {
         return;
     }
 
-    log(`Received ${trades.length} new transactions for ${pair}`);
+    log(`Received ${chalk.yellow(trades.length)} new transactions for ${chalk.whiteBright(pair)}`);
 
     await Promise.all(trades.map(async trade => await sql`
         INSERT INTO transactions

@@ -17,7 +17,6 @@ term.grabInput({ mouse: 'motion' });
 term.on('key', function (name: string, matches: string[], data: any) {
     const { isCharacter } = data;
     const lastSelectedRow = state.selectedRow;
-    log(`Key: ${name}`, JSON.stringify(data));
     if (isCharacter && !['-', '=', '[', ']', ',', '.', '<', '>', ';', '\''].includes(name)) {
         addLookupChar(name);
     } else {

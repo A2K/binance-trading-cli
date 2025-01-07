@@ -19,7 +19,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
             try {
                 await redeemFlexibleProduct(symbol, amountToUnstake);
             } catch (e) {
-                log.err(`Failed to redeem ${amountToUnstake} ${symbol}:`, e);
+                log.err(`Failed to redeem ${chalk.yellow(amountToUnstake)} ${chalk.whiteBright(symbol)}:`, e);
             }
         }
     } else {
@@ -28,7 +28,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
             try {
                 await redeemFlexibleProduct(Settings.stableCoin, marketCeil(symbol, quantity - await state.wallet.free(Settings.stableCoin)));
             } catch (e) {
-                log.err(`Failed to redeem ${quantity - await state.wallet.free(Settings.stableCoin)} ${Settings.stableCoin}:`, e);
+                log.err(`Failed to redeem ${chalk.yellow(quantity - await state.wallet.free(Settings.stableCoin))} ${chalk.whiteBright(Settings.stableCoin)}:`, e);
             }
         }
     }
@@ -36,7 +36,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     state.assets[symbol].stakingInProgress = false;
 
     const orderQuantity = formatAssetQuantity(symbol, Math.abs(quantity));
-    log(`Creating MARKET order to ${quantity >= 0 ? 'BUY' : 'SELL'} ${chalk.yellow(orderQuantity)} ${chalk.whiteBright(symbol)}`);
+    log(`Creating ${chalk.greenBright('MARKET')} order to ${quantity >= 0 ? chalk.green('BUY') : chalk.red('SELL')} ${chalk.yellow(orderQuantity)} ${chalk.whiteBright(symbol)}`);
 
     const completedOrder = await binance.order({
         symbol: `${symbol}${Settings.stableCoin}`,
@@ -46,7 +46,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     });
 
     if (!completedOrder || completedOrder.status === 'EXPIRED') {
-        log.err(`Fail to ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${Math.abs(quantity)} ${symbol}`);
+        log.err(`Fail to ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${chalk.yellow(Math.abs(quantity))} ${chalk.whiteBright(symbol)}`);
         return false;
     }
 
@@ -63,7 +63,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     state.wallet.markOutOfDate(symbol);
 
     state.assets[symbol].orderInProgress = false;
-    log(`Order completed: ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${Math.abs(quantity)} ${symbol}`);
+    log(`Order completed: ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${chalk.yellow(Math.abs(quantity))} ${chalk.whiteBright(symbol)}`);
 
     return true;
 }

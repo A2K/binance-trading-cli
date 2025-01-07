@@ -177,7 +177,13 @@ export async function subscribeFlexibleProduct(asset: string, amount: number): P
 
     const productId = product.productId;
 
-    const response = await binance.simpleEarn.flexibleSubscribe({ productId, amount, autoSubscribe: false }) as FlexibleSubscriptionPurchase;
+    var response: FlexibleSubscriptionPurchase;
+    try {
+        response = await binance.simpleEarn.flexibleSubscribe({ productId, amount, autoSubscribe: false }) as FlexibleSubscriptionPurchase;
+    } catch (e) {
+        log.err(`Failed to stake ${amount} ${asset}:`, e);
+        return 0;
+    }
     if (response.success) {
 
         log(`💰 STAKED ${chalk.yellow(formatAssetQuantity(asset, amount))} ${chalk.whiteBright(asset)}`);
