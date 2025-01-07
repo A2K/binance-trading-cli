@@ -35,8 +35,9 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
 
     state.assets[symbol].stakingInProgress = false;
 
+
     const orderQuantity = formatAssetQuantity(symbol, Math.abs(quantity));
-    log(`Creating ${chalk.greenBright('MARKET')} order to ${quantity >= 0 ? chalk.green('BUY') : chalk.red('SELL')} ${chalk.yellow(orderQuantity)} ${chalk.whiteBright(symbol)}`);
+    log(`Creating ${chalk.greenBright('MARKET')} order to ${quantity >= 0 ? `🪙 ${chalk.yellowBright('BUY')}` : `💵 ${chalk.greenBright('SELL')}`} ${chalk.yellow(orderQuantity)} ${chalk.whiteBright(symbol)}`);
 
     const completedOrder = await binance.order({
         symbol: `${symbol}${Settings.stableCoin}`,
@@ -46,7 +47,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     });
 
     if (!completedOrder || completedOrder.status === 'EXPIRED') {
-        log.err(`Fail to ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${chalk.yellow(Math.abs(quantity))} ${chalk.whiteBright(symbol)}`);
+        log.err(`Fail to ${quantity >= 0 ? `🪙 ${chalk.yellowBright('BUY')}` : `💵 ${chalk.greenBright('SELL')}`} ${chalk.yellow(Math.abs(quantity))} ${chalk.whiteBright(symbol)}`);
         return false;
     }
 
@@ -65,7 +66,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     setTimeout(() => {
         clearStakingCache(symbol);
         state.assets[symbol].orderInProgress = false;
-        log(`Order completed: ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${chalk.yellow(Math.abs(quantity))} ${chalk.whiteBright(symbol)}`);
+        log(`Order completed: ${quantity >= 0 ? `🪙 ${chalk.yellowBright('BUY')}` : `💵 ${chalk.greenBright('SELL')}`} ${chalk.yellow(Math.abs(quantity))} ${chalk.whiteBright(symbol)}`);
     }, 250);
 
     return true;

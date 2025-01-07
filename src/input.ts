@@ -270,7 +270,7 @@ term.on('mouse', function (name: string, data: any) {
                 dragStartY = y;
                 scrollBarGrabOffset = state.symbolsScroll;
             }
-            if (x < state.candles.XBase && y < state.symbolsHeight) {
+            if (x < state.candles.XBase && y <= state.symbolsHeight) {
                 state.selectedRow = y - 1 + state.symbolsScroll;
             }
 

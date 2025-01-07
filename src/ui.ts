@@ -71,7 +71,7 @@ export var messageLog: LogMessage[] = (() => {
         const sizeToRead = Math.min(logSize, 10000);
         const buffer = Buffer.alloc(sizeToRead);
         fs.readSync(file, buffer, 0, sizeToRead, logSize - sizeToRead);
-        return buffer.toString().split('\n').map(LogMessage.deserialize);
+        return buffer.toString().split('\n').map(LogMessage.deserialize).filter(m => !isNaN(m.time.getTime()));
         // readLastLines.read('config/log.txt', 10000).then(data => messageLog = data.split('\n').map(LogMessage.deserialize));
         // return fs.readFileSync(__dirname + '/config/log.txt').toString().split('\n').map(LogMessage.deserialize);
     } catch (e) {
@@ -605,7 +605,7 @@ export function printTrades(): void {
 }
 
 function chars(str: string): string[] {
-    str = str.replace(/\x1b\[\d+;?\w?/, '');
+    return new GraphemeSplitter().splitGraphemes(str.replace(/\x1b\[\d+(;\d*)?\w?/, ''));
     const res = [];
     for (const c of str) {
         res.push(c);
@@ -640,7 +640,7 @@ export async function printLog() {
     for (var i = 0; i < lines.length; ++i) {
         const line: string = substr(lines[i].toString(), 0, state.candles.XBase - 1);
         readline.cursorTo(process.stdout, 0, state.symbolsHeight + 1 + i);
-        process.stdout.write(line + ' '.repeat(Math.max(0, state.candles.XBase - lines[i].length)));
+        process.stdout.write(strpad(line, state.candles.XBase));
     }
 
     scrollBar({ position: pos, total: messageLog.length, height: maxLines }).split('').forEach((c, i) => {
