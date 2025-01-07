@@ -62,8 +62,11 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
 
     state.wallet.markOutOfDate(symbol);
 
-    state.assets[symbol].orderInProgress = false;
-    log(`Order completed: ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${chalk.yellow(Math.abs(quantity))} ${chalk.whiteBright(symbol)}`);
+    setTimeout(() => {
+        clearStakingCache(symbol);
+        state.assets[symbol].orderInProgress = false;
+        log(`Order completed: ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${chalk.yellow(Math.abs(quantity))} ${chalk.whiteBright(symbol)}`);
+    }, 250);
 
     return true;
 }

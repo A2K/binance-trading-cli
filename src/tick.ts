@@ -85,7 +85,9 @@ export async function tick(priceInfo: Ticker): Promise<void> {
                         );
                         return;
                     }
-
+                    if (state.assets[symbol].orderInProgress) {
+                        return;
+                    }
                     state.assets[symbol].orderInProgress = true;
                     (async () => {
                         try {

@@ -4,7 +4,7 @@ import state from './state';
 import Settings from './settings';
 import readline from 'readline';
 import candles, { Candle, LiveCandleData } from './candles';
-import { bgLerp, lerpColor, lerpChalk, clamp, getAssetBallance, progressBarText, verticalBar, trimTrailingZeroes, DelayedExecution, timestampStr, getAvgBuyPrice, formatAssetQuantity } from './utils';
+import { bgLerp, lerpColor, lerpChalk, clamp, getAssetBallance, progressBarText, verticalBar, trimTrailingZeroes, DelayedExecution, timestampStr, getAvgBuyPrice, formatAssetQuantity, getAssetBallanceFree } from './utils';
 import { readProfits, readTransactionLog } from './transactions';
 import { CandleChartInterval_LT } from 'binance-api-node';
 import { getStakedQuantity, getStakingEffectiveAPR, getStakingEffectiveAPRAverage } from './autostaking';
@@ -283,7 +283,7 @@ export const printStats = async (symbol: string, deltaPrice?: number): Promise<v
     const deltaSumColor: chalk.Chalk = deltaSum <= 0 ? chalk.green : chalk.red;
     const profitsColor: chalk.Chalk = profits >= 0 ? chalk.green : chalk.red;
 
-    const stakedBalance = await getAssetBallance(Settings.stableCoin);
+    const stakedBalance = await getAssetBallanceFree(Settings.stableCoin);
     const padded: string = `${Math.round(stakedBalance + await state.wallet.total(Settings.stableCoin))} +${('' + state.steps[state.step])} =`;
     const padding: string = ' '.repeat(Math.max(0, 14 - padded.length));
 
@@ -605,20 +605,24 @@ export function printTrades(): void {
 }
 
 function chars(str: string): string[] {
+    str = str.replace(/\x1b\[\d+;?\w?/, '');
     const res = [];
     for (const c of str) {
         res.push(c);
     }
     return res;
-}
-function strlen(str: string): number {
-    var res = 0;
-    for (const c of str) {
-        res++;
+    /*
+    const res = [];
+    for (const c of str.replace(/\x1b\[\d+;?\w?/, '')) {
+        res.push(c);
     }
     return res;
-    // return new GraphemeSplitter().splitGraphemes(str).length;
+    */
 }
+function strlen(str: string): number {
+    return chars(str).length;
+}
+
 function substr(str: string, start?: number, end?: number): string {
     return chars(str).slice(start, end).join('');
 }

@@ -50,6 +50,16 @@ export async function getAssetBallance(asset: string): Promise<number> {
   return await state.wallet.total(asset) + stakedQuantity;
 }
 
+export async function getAssetBallanceFree(asset: string): Promise<number> {
+  const stakedQuantity = await getStakedQuantity(asset);
+  if (asset === 'SOL') {
+    const coef = 'BNSOL' in state.assets && 'SOL' in state.assets
+      ? state.assets['BNSOL'].price / state.assets['SOL'].price : 1.0;
+    return await state.wallet.free(asset) + stakedQuantity * coef;
+  }
+  return await state.wallet.free(asset) + stakedQuantity;
+}
+
 export function formatAssetQuantity(asset: string, quantity: number): string {
   const precision = 10; /*(asset in state.assets)
     ? clamp(Math.ceil(Math.log10(1.0 / state.assets[asset].stepSize)), 0, 8)
