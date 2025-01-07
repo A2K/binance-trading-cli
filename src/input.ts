@@ -17,7 +17,8 @@ term.grabInput({ mouse: 'motion' });
 term.on('key', function (name: string, matches: string[], data: any) {
     const { isCharacter } = data;
     const lastSelectedRow = state.selectedRow;
-    if (isCharacter) {
+    log(`Key: ${name}`, JSON.stringify(data));
+    if (isCharacter && !['-', '=', '[', ']', ',', '.', '<', '>', ';', '\''].includes(name)) {
         addLookupChar(name);
     } else {
         switch (name) {
@@ -149,6 +150,54 @@ term.on('key', function (name: string, matches: string[], data: any) {
             case 'ESCAPE':
                 state.selectedRow = -1;
                 lookupStr = '';
+                break;
+            case 'ENTER':
+                if (state.selectedRow >= 0) {
+                    const symbol = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[symbol].forceTrade = true;
+                }
+                break;
+            case '-':
+                if (state.selectedRow >= 0) {
+                    const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[symbol].sellThreshold = Math.max(state.assets[symbol].minNotional, state.assets[symbol].sellThreshold - (state.assets[symbol].sellThreshold > 10 ? 5 : 1));
+                    printSymbol(symbol);
+                }
+                break;
+            case '=':
+                if (state.selectedRow >= 0) {
+                    const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[symbol].sellThreshold = Math.min(state.currencies[symbol], state.assets[symbol].sellThreshold + (state.assets[symbol].sellThreshold >= 10 ? 5 : 1));
+                    printSymbol(symbol);
+                }
+                break;
+            case ']':
+                if (state.selectedRow >= 0) {
+                    const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[symbol].buyThreshold = Math.max(state.assets[symbol].minNotional, state.assets[symbol].buyThreshold - (state.assets[symbol].buyThreshold > 10 ? 5 : 1));
+                    printSymbol(symbol);
+                }
+                break;
+            case '[':
+                if (state.selectedRow >= 0) {
+                    const symbol: string = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[symbol].buyThreshold = Math.min(state.currencies[symbol], state.assets[symbol].buyThreshold + (state.assets[symbol].buyThreshold >= 10 ? 5 : 1));
+                    printSymbol(symbol);
+                }
+                break;
+            case ',':
+            case '<':
+                if (state.selectedRow >= 0) {
+                    const asset = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[asset].maxDailyLoss = Math.max(0, state.assets[asset].maxDailyLoss - 5);
+                }
+                break;
+            case '.':
+            case '>':
+                if (state.selectedRow >= 0) {
+                    const asset = Object.keys(state.currencies).sort()[state.selectedRow];
+                    state.assets[asset].maxDailyLoss += 5;
+                }
                 break;
         }
     }

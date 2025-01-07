@@ -93,7 +93,7 @@ async function redeemBNSOL(amount: number): Promise<number> {
         type: OrderType.MARKET,
         symbol: 'BNSOLSOL',
         side: 'SELL',
-        quantity: formatAssetQuantity('SOL', amount)
+        quantity: marketFloor('BNSOL', amount).toFixed(6)
     });
 
     if (order.status !== 'FILLED') {
@@ -183,6 +183,7 @@ export async function subscribeFlexibleProduct(asset: string, amount: number): P
         log(`💰 STAKED ${chalk.yellow(formatAssetQuantity(asset, amount))} ${chalk.whiteBright(asset)}`);
 
         clearStakingCache(asset);
+        setTimeout(() => clearStakingCache(asset), 1000); // not sure why it's delayed
 
         state.wallet.markOutOfDate(asset);
 
