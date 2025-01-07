@@ -68,6 +68,11 @@ export function marketCeil(asset: string, quantity: number): number {
   return Math.max(minNotional, Math.ceil(quantity / stepSize) * stepSize);
 }
 
+export function marketFloor(asset: string, quantity: number): number {
+  const { stepSize, minNotional } = state.assets[asset];
+  return Math.max(minNotional, Math.floor(quantity / stepSize) * stepSize);
+}
+
 export function marketRound(asset: string, quantity: number): number {
   const { stepSize } = state.assets[asset];
   return Math.round(quantity / stepSize) * stepSize;

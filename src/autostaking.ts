@@ -7,7 +7,7 @@ import cache from 'memory-cache';
 
 import 'source-map-support/register';
 import { log } from './ui';
-import { formatAssetQuantity, marketCeil, timestampStr } from './utils';
+import { formatAssetQuantity, marketCeil, marketFloor, timestampStr } from './utils';
 import state from './state';
 
 import binance, { ThrottledBinanceAPI } from './binance-ext/throttled-binance-api';
@@ -51,21 +51,22 @@ type FlexibleSubscriptionPurchase = {
 };
 
 async function stakeBNSOL(amount: number): Promise<number> {
+    log(`converting ${amount} SOL to BNSOL`);
     var order: Order | undefined;
     try {
         order = await binance.order({
             type: OrderType.MARKET,
             symbol: 'BNSOLSOL',
             side: 'BUY',
-            quantity: amount.toFixed(6)
+            quantity: marketFloor('SOL', state.assets['SOL'].price / state.assets['BNSOL'].price * amount).toFixed(6)
         });
     } catch (e) {
-        log.err(`FAILED TO STAKE ${amount} SOL`);
+        log.err(`failed to trade ${amount} SOL->BNSOL:`, e);
         return 0;
     }
 
     if (order.status !== 'FILLED') {
-        log.err(`Failed to buy ${amount} BNSOL`);
+        log.err(`failed to trade ${amount} SOL->BNSOL: ${order.status}`);
         return 0;
     }
 
@@ -364,12 +365,13 @@ export async function subscribeFlexibleProductAllFree(asset: string): Promise<nu
 
     const staked = await subscribeFlexibleProduct(asset, amountToStake);
     state.wallet.markOutOfDate(asset);
-    log(`💰 STAKED ${chalk.yellow(formatAssetQuantity(asset, staked))} ${chalk.whiteBright(asset)}`);
+
     return staked;
 }
 
 export async function getStakingEffectiveAPR(asset: string): Promise<number> {
     if (asset === 'SOL') {
+        return 0.0844;
         // asset = 'BNSOL';
         // const account = await binance.stakingSOL.account();
         // const effectiveAPR = parseFloat(account.thirtyDaysProfitInSOL) / 30 * 365 / parseFloat(account.holdingInSOL);

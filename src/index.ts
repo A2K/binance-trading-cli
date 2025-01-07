@@ -51,12 +51,12 @@ binance.init().then(async () => {
 
     const accountInfo = await binance.accountInfo();
 
-    const allSymbols: string[] = [...new Set(accountInfo.balances
+    const allSymbols: string[] = [...new Set([...accountInfo.balances
         .filter(b => parseFloat(b.free) + parseFloat(b.locked) > 0)
         .map(b => b.asset)
         .concat((await getStakingAccount()).rows.map(r => r.asset))
         .filter(a => a !== Settings.stableCoin)
-        .filter(s => !s.startsWith('LD') || s === 'LDO'))
+        .filter(s => !s.startsWith('LD') || s === 'LDO'), 'BNSOL'])
     ].sort();
 
     binance.ws.user(async msg => {
