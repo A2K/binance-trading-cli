@@ -46,7 +46,7 @@ export class LogMessage {
                 default: return 'ℹ';
             }
         })();
-        return prefix + ' ' + timestampStr(this.time) + ' ' + color(this.message);
+        return prefix + ' ' + timestampStr(this.time) + ' ' + color(this.message.substring(0, Math.min(this.message.length, state.candles.XBase - 23)));
     }
 
     get length(): number {
@@ -283,7 +283,7 @@ export const printStats = async (symbol: string, deltaPrice?: number): Promise<v
     const deltaSumColor: chalk.Chalk = deltaSum <= 0 ? chalk.green : chalk.red;
     const profitsColor: chalk.Chalk = profits >= 0 ? chalk.green : chalk.red;
 
-    const stakedBalance = await getAssetBallanceFree(Settings.stableCoin);
+    const stakedBalance = await getStakedQuantity(Settings.stableCoin);
     const padded: string = `${Math.round(stakedBalance + await state.wallet.total(Settings.stableCoin))} +${('' + state.steps[state.step])} =`;
     const padding: string = ' '.repeat(Math.max(0, 14 - padded.length));
 
@@ -291,7 +291,7 @@ export const printStats = async (symbol: string, deltaPrice?: number): Promise<v
 
     const str = `📋 ` + (state.enableSell ? chalk.bgGreen : chalk.bgRed)('F1💵') +
         ' ' + (state.enableBuy ? chalk.bgGreen : chalk.bgRed)('F2🪙') +
-        (padding + `${Math.round(stakedBalance + await state.wallet.total(Settings.stableCoin))}` +
+        (padding + `${Math.round(await getAssetBallanceFree(Settings.stableCoin))}` +
         ` ${chalk.grey('±')}${('' + state.steps[state.step])}` +
             ` ${chalk.yellow('⇄')} `) +
         `${Math.round(Object.values(state.currencies).reduce((acc, currency) => acc + currency, 0)).toFixed(0).padEnd(10)}` +
@@ -605,9 +605,9 @@ export function printTrades(): void {
 }
 
 function chars(str: string): string[] {
-    return new GraphemeSplitter().splitGraphemes(str.replace(/\x1b\[\d+(;\d*)?\w?/, ''));
+    // return (str.replace(/\x1b\[\??\d+m/, '').split('');
     const res = [];
-    for (const c of str) {
+    for (const c of str.replace(/\x1b\[\??\d+m/, '')) {
         res.push(c);
     }
     return res;
@@ -627,7 +627,7 @@ function substr(str: string, start?: number, end?: number): string {
     return chars(str).slice(start, end).join('');
 }
 function strpad(str: string, len: number, char: string = ' ') {
-    return str + char.repeat(len - strlen(str));
+    return str + char.repeat(Math.max(10, len - strlen(str)));
 }
 export async function printLog() {
 
@@ -638,9 +638,9 @@ export async function printLog() {
     const lines = messageLog.slice(0).reverse().slice(pos, pos + maxLines);
 
     for (var i = 0; i < lines.length; ++i) {
-        const line: string = substr(lines[i].toString(), 0, state.candles.XBase - 1);
+        const line: string = lines[i].toString();//.substring(0, state.candles.XBase - 1);
         readline.cursorTo(process.stdout, 0, state.symbolsHeight + 1 + i);
-        process.stdout.write(strpad(line, state.candles.XBase));
+        process.stdout.write(line + ' '.repeat(Math.max(0, state.candles.XBase - lines[i].length)));
     }
 
     scrollBar({ position: pos, total: messageLog.length, height: maxLines }).split('').forEach((c, i) => {
