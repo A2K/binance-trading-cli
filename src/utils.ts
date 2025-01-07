@@ -129,8 +129,8 @@ export const getAvgBuyPrice = async (symbol: string): Promise<number> => {
   var currentSum = 0;
   for (const transaction of transactions) {
       if (transaction.isBuyer) {
-          const ratio = transaction.quantity / (Math.abs(currentSum) + Math.abs(transaction.quantity));
-          currentAvg = currentAvg * clamp(1.0 - ratio) + parseFloat(transaction.price) * ratio;
+          const ratio = clamp(Math.abs(transaction.quantity) / (Math.abs(currentSum) + Math.abs(transaction.quantity)));
+          currentAvg = currentAvg * (1.0 - ratio) + parseFloat(transaction.price) * ratio;
           currentSum += transaction.quantity;
       } else {
           currentSum -= transaction.quantity;

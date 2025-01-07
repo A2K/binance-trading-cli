@@ -239,7 +239,7 @@ export async function printSymbol(symbol: string): Promise<void> {
        lerpChalk([200, 0, 0], [0, 200, 0], PNL > 0 ? 1 : 0)(PNL.toFixed(2).padStart(9));
 
     const keys: string[] = Object.keys(state.currencies).sort();
-    const lineIndex = clamp(keys.indexOf(symbol) - state.symbolsScroll, 0, keys.length - 1);
+    const lineIndex = keys.indexOf(symbol) - state.symbolsScroll;
     const scrollBarChar = scrollBar({
         position: state.symbolsScroll,
         total: Object.keys(state.assets).length,
@@ -269,6 +269,12 @@ export const printStats = async (symbol: string, deltaPrice?: number): Promise<v
 
     printSymbol(symbol);
 
+    if (Object.keys(state.currencies).length < state.symbolsHeight) {
+        for (var i = Object.keys(state.currencies).length; i < state.symbolsHeight; i++) {
+            readline.cursorTo(process.stdout, 0, i);
+            process.stdout.write(' '.repeat(state.candles.XBase));
+        }
+    }
     const profits: number = await readProfits();
 
     const deltaSum: number = Object.keys(state.currencies).reduce((acc, delta) => acc + (state.deltas[delta] || 0), 0);
@@ -300,6 +306,7 @@ export const printStats = async (symbol: string, deltaPrice?: number): Promise<v
             `${chalk.red('↓')}${chalk.whiteBright('[')}${chalk.green('↑')}${chalk.whiteBright(']')} `) + ' '.repeat(10);
     readline.cursorTo(process.stdout, 0, state.symbolsHeight);
     process.stdout.write(chalk.bgRgb(64, 64, 64)(str));
+
 
 }
 
@@ -502,7 +509,9 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
     const buyPrice = await getAvgBuyPrice(symbol);
     const buyRatio = clamp((buyPrice - state.assets[symbol].price) / (state.assets[symbol].price * 0.1), -1, 1);
 
-        str[0] += `${(buyRatio > 0 ? lerpChalk([200, 200, 200], [255, 200, 200], Math.abs(buyRatio)) : lerpChalk([200, 200, 200], [200, 255, 200], Math.abs(buyRatio)))(formatAssetQuantity(symbol, buyPrice).slice(0, 10).padEnd(13))}`;
+        str[0] += ` ${(buyRatio > 0 ? lerpChalk([200, 200, 200], [255, 200, 200], Math.abs(buyRatio)) : lerpChalk([200, 200, 200], [200, 255, 200], Math.abs(buyRatio)))(formatAssetQuantity(symbol, buyPrice).slice(0, 10).padEnd(13))}`;
+        str[0] += (state.assets[symbol].price > buyPrice ? '+' : '-') + (Math.abs(state.assets[symbol].price - buyPrice) / buyPrice * 100).toFixed(2) + '%';
+
 
         // readline.clearLine(process.stdout, 1);
 

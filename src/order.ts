@@ -56,11 +56,11 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
         await subscribeFlexibleProductAllFree(symbol);
     }
 
-    state.wallet.markOutOfDate(symbol);
-
     await pullNewTransactions(symbol);
     await refreshMaterializedViews();
     clearStakingCache(symbol);
+
+    state.wallet.markOutOfDate(symbol);
 
     state.assets[symbol].orderInProgress = false;
     log(`Order completed: ${quantity >= 0 ? '🪙 BUY' : '💵 SELL'} ${Math.abs(quantity)} ${symbol}`);

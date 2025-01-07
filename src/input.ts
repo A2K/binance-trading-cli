@@ -90,11 +90,13 @@ term.on('key', function (name: string, matches: string[], data: any) {
                 lookupStr = '';
                 state.selectedRow = 0;
                 state.symbolsScroll = 0;
+                Object.keys(state.currencies).map(printSymbol);
                 break;
             case 'END':
                 lookupStr = '';
                 state.selectedRow = Object.keys(state.currencies).length - 1;
                 state.symbolsScroll = Math.max(0, Object.keys(state.currencies).length - state.symbolsHeight);
+                Object.keys(state.currencies).map(printSymbol);
                 break;
             case 'F1':
                 if (state.selectedRow >= 0) {
@@ -308,6 +310,20 @@ term.on('mouse', function (name: string, data: any) {
                         printLog();
                     }
                 }
+            } else if (y < state.symbolsHeight && x < state.candles.XBase) {
+                if (name === 'MOUSE_WHEEL_UP') {
+                    const newValue = Math.max(0, state.symbolsScroll - 1);
+                    if (newValue !== state.symbolsScroll) {
+                        state.symbolsScroll = newValue;
+                        Object.keys(state.currencies).map(printSymbol);
+                    }
+                } else {
+                    const newValue = Math.min(state.symbolsScroll + 1, Math.max(0, (Object.keys(state.currencies).length - state.symbolsHeight)));
+                    if (newValue !== state.symbolsScroll) {
+                        state.symbolsScroll = newValue;
+                        Object.keys(state.currencies).map(printSymbol);
+                    }
+                }
             }
             break;
     case 'MOUSE_DRAG':
@@ -362,6 +378,12 @@ term.on('mouse', function (name: string, data: any) {
                     state.symbolsHeight = Math.max(1, y - 1);
                     Object.keys(state.currencies).map(printSymbol);
                     printLog();
+                    if (state.symbolsHeight >= Object.keys(state.currencies).length) {
+                        state.symbolsScroll = 0;
+                    } else {
+                        state.symbolsScroll = Math.min(state.symbolsScroll,
+                            Object.keys(state.currencies).length - state.symbolsHeight);
+                    }
                 }
 
                 // else if (selectRowOnMotion) {
@@ -386,6 +408,17 @@ function onSelectedRowChanged(lastSelectedRow: number) {
             closeLiveIndicator('EMA', `${symbol}${Settings.stableCoin}`, period);
             closeLiveIndicator('RSI', `${symbol}${Settings.stableCoin}`, period);
             closeLiveIndicator('stRSI', `${symbol}${Settings.stableCoin}`, period);
+        }
+    }
+
+    if (state.selectedRow >= 0) {
+        if (state.selectedRow < state.symbolsScroll) {
+            state.symbolsScroll = state.selectedRow;
+            Object.keys(state.currencies).map(printSymbol);
+        }
+        if (state.selectedRow >= state.symbolsScroll + state.symbolsHeight) {
+            state.symbolsScroll = state.selectedRow - state.symbolsHeight + 1;
+            Object.keys(state.currencies).map(printSymbol);
         }
     }
 
