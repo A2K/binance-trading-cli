@@ -65,30 +65,26 @@ export class OptimizedOrder {
 
             if (this.quantity > 0) {
                 const stopPrice = this.price + maxPriceDelta;
-                // if (stopPrice < parseFloat(this.order.stopPrice || 'inf')) {
-                    this.order = await binance.cancelReplace({
-                        symbol: this.order.symbol,
-                        cancelOrderId: this.order.orderId,
-                        side: 'BUY',
-                        quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
-                        type: 'STOP_LOSS',
-                        stopPrice: `${formatAssetPrice(this.symbol, stopPrice)}`,
-                        cancelReplaceMode: 'ALLOW_FAILURE'
-                    });
-                // }
+                this.order = await binance.cancelReplace({
+                    symbol: this.order.symbol,
+                    cancelOrderId: this.order.orderId,
+                    side: 'BUY',
+                    quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
+                    type: 'STOP_LOSS',
+                    stopPrice: `${formatAssetPrice(this.symbol, stopPrice)}`,
+                    cancelReplaceMode: 'STOP_ON_FAILURE'
+                });
             } else {
                 const stopPrice = this.price - maxPriceDelta;
-                // if (stopPrice > parseFloat(this.order.stopPrice || 'inf')) {
-                    this.order = await binance.cancelReplace({
-                        symbol: this.order.symbol,
-                        cancelOrderId: this.order.orderId,
-                        side: 'SELL',
-                        quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
-                        type: 'STOP_LOSS',
-                        stopPrice: `${formatAssetPrice(this.symbol, stopPrice)}`,
-                        cancelReplaceMode: 'ALLOW_FAILURE'
-                    });
-                // }
+                this.order = await binance.cancelReplace({
+                    symbol: this.order.symbol,
+                    cancelOrderId: this.order.orderId,
+                    side: 'SELL',
+                    quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
+                    type: 'STOP_LOSS',
+                    stopPrice: `${formatAssetPrice(this.symbol, stopPrice)}`,
+                    cancelReplaceMode: 'STOP_ON_FAILURE'
+                });
             }
         } catch (e) {
             log.warn('Failed to adjust order:', e);
