@@ -25,8 +25,8 @@ export class OptimizedOrder {
         this.quantity = quantity;
         this.price = price;
         try {
-            const candle = (await getCandles(this.symbol, '1m', 1))[0];
-            const maxPriceDelta = Math.max(candle.high - candle.low, Math.abs(candle.open - candle.close));
+            const candles = await getCandles(this.symbol, '1m', 50);
+            const maxPriceDelta = 0.5 * candles.reduce((acc, candle) => acc + candle.high - candle.low, 0) / candles.length;
 
             this.order = await binance.order({
                 symbol: `${this.symbol}${Settings.stableCoin}`,
@@ -59,13 +59,13 @@ export class OptimizedOrder {
 
         try {
 
-            const candles = await getCandles(this.symbol, '1m', 10);
+            const candles = await getCandles(this.symbol, '1m', 50);
             const maxPriceDelta = 0.5 * candles.reduce((acc, candle) => acc + candle.high - candle.low, 0) / candles.length;
             //const maxPriceDelta = 0.25 * state.assets[this.symbol].tickSize;
 
             if (this.quantity > 0) {
                 const stopPrice = this.price + maxPriceDelta;
-                if (stopPrice < parseFloat(this.order.stopPrice || 'inf')) {
+                // if (stopPrice < parseFloat(this.order.stopPrice || 'inf')) {
                     this.order = await binance.cancelReplace({
                         symbol: this.order.symbol,
                         cancelOrderId: this.order.orderId,
@@ -75,10 +75,10 @@ export class OptimizedOrder {
                         stopPrice: `${formatAssetPrice(this.symbol, stopPrice)}`,
                         cancelReplaceMode: 'ALLOW_FAILURE'
                     });
-                }
+                // }
             } else {
                 const stopPrice = this.price - maxPriceDelta;
-                if (stopPrice > parseFloat(this.order.stopPrice || 'inf')) {
+                // if (stopPrice > parseFloat(this.order.stopPrice || 'inf')) {
                     this.order = await binance.cancelReplace({
                         symbol: this.order.symbol,
                         cancelOrderId: this.order.orderId,
@@ -88,7 +88,7 @@ export class OptimizedOrder {
                         stopPrice: `${formatAssetPrice(this.symbol, stopPrice)}`,
                         cancelReplaceMode: 'ALLOW_FAILURE'
                     });
-                }
+                // }
             }
         } catch (e) {
             log.warn('Failed to adjust order:', e);
@@ -138,7 +138,7 @@ async function test() {
 export async function order(symbol: string, quantity: number): Promise<boolean> {
     if (quantity < 0) {
         if ((await state.wallet.free(symbol)) < Math.abs(quantity)) {
-            const amountToUnstake = marketCeil(symbol, Math.abs(quantity) - (await state.wallet.free(symbol)) / parseFloat(state.assets[symbol].bestAsk));
+            const amountToUnstake = Math.abs(quantity) - (await state.wallet.free(symbol));
             state.assets[symbol].stakingInProgress = true;
             try {
                 await redeemFlexibleProduct(symbol, amountToUnstake);
