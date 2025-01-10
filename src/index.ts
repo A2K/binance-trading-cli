@@ -81,7 +81,7 @@ binance.init().then(async () => {
                     case 'FILLED':
                         log(`Order ${chalk.cyan(msg.orderId)} filled for ${chalk.whiteBright(msg.symbol)} at ${chalk.yellow(parseFloat(msg.totalQuoteTradeQuantity) / parseFloat(msg.quantity))}`);
                         if (state.assets[asset].currentOrder) {
-                            if (await state.assets[asset].currentOrder.complete(msg)) {
+                            if (await state.assets[asset].currentOrder?.complete(msg)) {
                                 delete state.assets[asset].currentOrder;
                             }
                         }

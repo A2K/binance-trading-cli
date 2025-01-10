@@ -172,18 +172,18 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
 
             const currentMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].price);
             const currentMarketPrice = parseFloat(currentMarketPriceStr);
-            const orderMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].currentOrder.price);
+            const orderMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].currentOrder!.price);
             const orderMarketPrice = parseFloat(orderMarketPriceStr);
-            if (Math.sign(state.assets[symbol].currentOrder.quantity) == Math.sign(quantity)) {
+            if (Math.sign(state.assets[symbol].currentOrder!.quantity) == Math.sign(quantity)) {
                 if ((quantity > 0 && (currentMarketPrice > orderMarketPrice)) ||
                     (quantity < 0 && (orderMarketPrice > currentMarketPrice))) {
                     log.notice('Order already in progress with the same sign and better price');
                     return false;
                 }
             }
-            if (!await state.assets[symbol].currentOrder.adjust(quantity, parseFloat(state.assets[symbol].bestBid))) {
+            if (!await state.assets[symbol].currentOrder?.adjust(quantity, parseFloat(state.assets[symbol].bestBid))) {
                 log.err('Failed to adjust order, cancelling it');
-                await state.assets[symbol].currentOrder.cancel();
+                await state.assets[symbol].currentOrder?.cancel();
                 delete state.assets[symbol].currentOrder;
                 return false;
             }
@@ -192,11 +192,11 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
 
         state.assets[symbol].currentOrder = new OptimizedOrder(symbol);
 
-        const orderCreated = await state.assets[symbol].currentOrder.adjust(quantity, state.assets[symbol].price);
+        const orderCreated = await state.assets[symbol].currentOrder!.adjust(quantity, state.assets[symbol].price);
 
         if (!orderCreated) {
             log.err('Failed to create order', symbol, quantity);
-            state.assets[symbol].currentOrder.cancel();
+            state.assets[symbol].currentOrder?.cancel();
             delete state.assets[symbol].currentOrder;
         }
 
@@ -204,7 +204,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     } catch (e) {
         log.err('Failed to create order:', e);
         if (state.assets[symbol].currentOrder) {
-            await state.assets[symbol].currentOrder.cancel();
+            await state.assets[symbol].currentOrder?.cancel();
             delete state.assets[symbol].currentOrder;
         }
 
