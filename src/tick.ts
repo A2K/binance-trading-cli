@@ -2,12 +2,13 @@
 import chalk from 'chalk';
 import state from './state';
 import { printStats } from './ui';
-import { getAssetBallance, lerp, marketRound, timestampStr } from './utils';
+import { formatAssetPrice, getAssetBallance, lerp, marketRound, timestampStr } from './utils';
 import { log } from './ui';
-import { order } from './order';
+import { order } from './optimized-order';
 import { readProfits } from './transactions';
 import { Ticker } from 'binance-api-node';
 import binance from './binance-ext/throttled-binance-api';
+import { getCandles } from './candles';
 
 var __calculatingIndicators = false;
 export async function tick(priceInfo: Ticker): Promise<void> {
@@ -53,16 +54,50 @@ export async function tick(priceInfo: Ticker): Promise<void> {
 
     printStats(symbol, deltaPrice);
 
-    if (state.assets[symbol].orderInProgress || !binance.canStakeOrRedeem) {
+    if (!binance.canStakeOrRedeem) {
         return;
+    }
+
+    if (state.assets[symbol].currentOrder) {
+        const currentMarketPriceStr = formatAssetPrice(symbol, currentPrice);
+        const currentMarketPrice = parseFloat(currentMarketPriceStr);
+        const orderMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].currentOrder.price);
+        const orderMarketPrice = parseFloat(orderMarketPriceStr);
+        if (Math.sign(state.assets[symbol].currentOrder.quantity) !== Math.sign(quantity)) {
+            log.warn(`CANCELING ORDER: ${symbol} at ${orderMarketPriceStr} -> ${orderMarketPriceStr}`);
+            await state.assets[symbol].currentOrder.cancel();
+            state.assets[symbol].currentOrder = undefined;
+        } else if ((quantity > 0 && currentMarketPrice < orderMarketPrice) ||
+                   (quantity < 0 && currentMarketPrice > orderMarketPrice)) {
+            log.warn(`ADJUSTING ORDER: ${symbol} at ${orderMarketPriceStr} -> ${currentMarketPriceStr}`);
+            if (!(await state.assets[symbol].currentOrder.adjust(quantity, currentPrice))) {
+                if (state.assets[symbol].currentOrder) {
+                    await state.assets[symbol].currentOrder.cancel();
+                    state.assets[symbol].currentOrder = undefined;
+                }
+            }
+        }
+        return;
+    }
+
+    if (state.assets[symbol].stopLossPrice > 0 &&
+        state.assets[symbol].price < state.assets[symbol].stopLossPrice) {
+        log.warn(`STOP LOSS HIT: ${symbol} at ${currentPrice} -> ${deltaUsd}`);
+        state.currencies[symbol] = 0;
+        state.assets[symbol].forceTrade = true;
+    } else if (state.assets[symbol].takeProfitPrice > 0 &&
+        state.assets[symbol].price > state.assets[symbol].takeProfitPrice) {
+        log.warn(`TAKE PROFIT HIT: ${symbol} at ${currentPrice} -> ${deltaUsd}`);
+        state.currencies[symbol] = 0;
+        state.assets[symbol].forceTrade = true;
     }
 
     const velocity: number = state.velocities[symbol] || 0;
     const forceTrade: boolean = state.assets[symbol].forceTrade;
     state.assets[symbol].forceTrade = false;
-    if (forceTrade || ((deltaUsd < 0 ? (velocity < 0.1) : (velocity > -0.1))
-        && (((deltaUsd > state.assets[symbol].buyThreshold) && state.enableBuy && state.assets[symbol].enableBuy)
-            || deltaUsd < -state.assets[symbol].sellThreshold && state.assets[symbol].enableSell && state.enableSell))) {
+    if (forceTrade //|| ((deltaUsd < 0 ? (velocity < 0.1) : (velocity > -0.1))
+        || (((deltaUsd > state.assets[symbol].buyThreshold) && state.enableBuy && state.assets[symbol].enableBuy)
+            || deltaUsd < -state.assets[symbol].sellThreshold && state.assets[symbol].enableSell && state.enableSell)) {
         try {
             if ('BNB' in state.assets) {
                 if (quantity > 0) {
@@ -85,16 +120,12 @@ export async function tick(priceInfo: Ticker): Promise<void> {
                         );
                         return;
                     }
-                    if (state.assets[symbol].orderInProgress) {
-                        return;
-                    }
-                    state.assets[symbol].orderInProgress = true;
+
                     (async () => {
                         try {
                             await order(symbol, quantity);
                         } catch (e) {
                             log.err('TRADE FAILED: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ', e);
-                            state.assets[symbol].orderInProgress = false;
                         }
                     })();
 

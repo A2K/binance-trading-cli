@@ -9,7 +9,11 @@ export type ConfigFile =
     'maxDailyLosses' |
     'interpSpeeds' |
     'currencies' |
-    'staking';
+    'staking' |
+    'stopLoss' |
+    'takeProfit' |
+    'stopLossRebuy' |
+    'takeProfitRebuy';
 
 export function getConfig(configFile: ConfigFile, defaultValue: any = {}) {
     try {

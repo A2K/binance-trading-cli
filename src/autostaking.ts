@@ -51,7 +51,7 @@ type FlexibleSubscriptionPurchase = {
 };
 
 async function stakeBNSOL(amount: number): Promise<number> {
-    log(`converting ${amount} SOL to BNSOL`);
+    log(`Converting ${amount} SOL to BNSOL`);
     var order: Order | undefined;
     try {
         order = await binance.order({
@@ -426,6 +426,12 @@ export function clearStakingCache(asset: string): void {
     cache.del(`staking-account-all`);
     cache.del(`staking-account-${asset}`);
     cache.del(`staking-apr-${asset}`);
-    cache.keys().filter(k =>
-        k.startsWith(`readProfits-`)).forEach(cache.del);
+}
+
+export function clearProfitsCache(asset: string): void {
+    cache.keys()
+        .filter(k =>
+            k.startsWith(`readProfits-${asset}`) ||
+            k.startsWith(`readProfits-undefined-`))
+        .forEach(cache.del);
 }

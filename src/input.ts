@@ -2,7 +2,7 @@ import readline from 'readline';
 import chalk from 'chalk';
 import Fuse from 'fuse.js';
 import Settings, { saveConfigFile } from './settings';
-import { log, clearTransactions, drawCandles, drawCandlesStatusBar, tradeLog, printStats, printSymbol, printTrades, printTransactions, printLog, messageLog } from './ui';
+import { log, clearTransactions, drawCandles, drawCandlesStatusBar, tradeLog, printStats, printSymbol, printTrades, printTransactions, printLog, messageLog, activeLimitsWidget } from './ui';
 import state from './state';
 import { redeemFlexibleProductAll, subscribeFlexibleProductAllFree } from './autostaking';
 import { closeLiveIndicator } from './indicators';
@@ -18,7 +18,11 @@ term.on('key', function (name: string, matches: string[], data: any) {
     const { isCharacter } = data;
     const lastSelectedRow = state.selectedRow;
     if (isCharacter && !['-', '=', '[', ']', ',', '.', '<', '>', ';', '\''].includes(name)) {
-        addLookupChar(name);
+        if (activeLimitsWidget && ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(name)) {
+            activeLimitsWidget.handleInput(name);
+        } else {
+            addLookupChar(name);
+        }
     } else {
         switch (name) {
             // ctrl+c
@@ -151,9 +155,14 @@ term.on('key', function (name: string, matches: string[], data: any) {
                 lookupStr = '';
                 break;
             case 'ENTER':
+                if (activeLimitsWidget) {
+                    activeLimitsWidget.handleEnter();
+                }
                 if (state.selectedRow >= 0) {
                     const symbol = Object.keys(state.currencies).sort()[state.selectedRow];
-                    state.assets[symbol].forceTrade = true;
+                    if (!state.assets[symbol].currentOrder) {
+                        state.assets[symbol].forceTrade = true;
+                    }
                 }
                 break;
             case '-':
@@ -278,6 +287,10 @@ term.on('mouse', function (name: string, data: any) {
                 && lastClick.x === x
                 && lastClick.y === y) {
                 // double click
+
+                if (x > state.candles.XBase && y > state.candles.height + 2 && y <= state.candles.height + 4) {
+                    activeLimitsWidget?.handleDoubleClick(x - state.candles.XBase, y - state.candles.height - 2);
+                }
 
                 if (x >= 65 && x <= 68) {
                     if (y < Object.keys(state.currencies).length) {

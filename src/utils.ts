@@ -73,6 +73,12 @@ export function formatAssetQuantity(asset: string, quantity: number): string {
   return step1.replace(/\.0$/, '');
 }
 
+export function formatAssetPrice(asset: string, price: number): string {
+  const priceStep = state.assets[asset].tickSize * 0.1;
+  const rounded = Math.round(price / priceStep) * priceStep;
+  return rounded.toFixed(Math.max(0, Math.ceil(Math.log10(1.0 / priceStep)) - 1));
+}
+
 export function marketCeil(asset: string, quantity: number): number {
   const { stepSize, minNotional } = state.assets[asset];
   return Math.max(minNotional, Math.ceil(quantity / stepSize) * stepSize);
@@ -152,4 +158,8 @@ export const getAvgBuyPrice = async (symbol: string): Promise<number> => {
       }
   }
   return currentAvg;
+}
+
+export function remap(a: number, from: number[], to: number[] = [0, 1]): number {
+  return (a - from[0]) / (from[1] - from[0]) * (to[1] - to[0]) + to[0];
 }

@@ -4,7 +4,7 @@ import state from './state';
 import Settings from './settings';
 import readline from 'readline';
 import candles, { Candle, LiveCandleData } from './candles';
-import { bgLerp, lerpColor, lerpChalk, clamp, getAssetBallance, progressBarText, verticalBar, trimTrailingZeroes, DelayedExecution, timestampStr, getAvgBuyPrice, formatAssetQuantity, getAssetBallanceFree } from './utils';
+import { bgLerp, lerpColor, lerpChalk, clamp, getAssetBallance, progressBarText, verticalBar, trimTrailingZeroes, DelayedExecution, timestampStr, getAvgBuyPrice, formatAssetQuantity, getAssetBallanceFree, remap } from './utils';
 import { readProfits, readTransactionLog } from './transactions';
 import { CandleChartInterval_LT } from 'binance-api-node';
 import { getStakedQuantity, getStakingEffectiveAPR, getStakingEffectiveAPRAverage } from './autostaking';
@@ -12,13 +12,11 @@ import { getLiveIndicator, LiveIndicator, LiveOHLCVHistory } from './indicators'
 import { sma, ema, rsi, stochasticrsi } from 'trading-indicator';
 import Trade from './trade';
 import fs from 'fs';
-import GraphemeSplitter from 'grapheme-splitter';
-import wrap from 'word-wrap';
 
 const logFileStream = fs.createWriteStream(__dirname + '/config/log.txt', {flags : 'a', encoding: 'utf-8'});
 
 export var tradeLog: Trade[] = [];
-type LogLevel = 'info' | 'warn' | 'error';
+type LogLevel = 'info' | 'notice' | 'warn' | 'error';
 
 export class LogMessage {
     constructor(public message: string, public level: LogLevel = 'info', public time = new Date()) { }
@@ -33,6 +31,7 @@ export class LogMessage {
         const color = (() => {
             switch (this.level) {
                 case 'info': return chalk.white;
+                case 'notice': return chalk.blue;
                 case 'warn': return chalk.yellow;
                 case 'error': return chalk.red;
                 default: return chalk.white;
@@ -40,9 +39,10 @@ export class LogMessage {
         })();
         const prefix = (() => {
             switch (this.level) {
-                case 'info': return '📜';
-                case 'warn': return '📌';
-                case 'error': return '❌';
+                case 'info': return '📃';
+                case 'notice': return 'ℹ️';
+                case 'warn': return '🛎';
+                case 'error': return '🚨';
                 default: return 'ℹ';
             }
         })();
@@ -59,10 +59,11 @@ export class LogMessage {
                 default: return 'ℹ';
             }
         })();
-        return prefix.length + ' '.length + timestampStr(this.time).length + ' '.length + this.message.length;
+        return 1 + ' '.length + timestampStr(this.time).length + ' '.length + this.message.length;
     }
 }
-import readLastLines = require('read-last-lines');
+
+import CLITable from './ui-clitable';
 
 export var messageLog: LogMessage[] = (() => {
     try {
@@ -84,6 +85,13 @@ export const log = (...msgs: any[]): void => {
     logFileStream.write(messageLog[messageLog.length - 1].serialize());
     printLog();
 }
+
+log.notice = (...msgs: any[]): void => {
+    messageLog.push(new LogMessage(msgs.map(msg => msg ? msg.toString() : `${msg}`).join(' '), 'notice'));
+    logFileStream.write(messageLog[messageLog.length - 1].serialize());
+    printLog();
+}
+
 log.warn = (...msgs: any[]): void => {
     messageLog.push(new LogMessage(msgs.map(msg => msg ? msg.toString() : `${msg}`).join(' '), 'warn'));
     logFileStream.write(messageLog[messageLog.length - 1].serialize());
@@ -96,8 +104,8 @@ log.err = (...msgs: any[]): void => {
     printLog();
 }
 
-export const colorizeDeltaUsd = (symbol: string, delta: number): string => {
-    let deltaStr: string = ((delta < 0 ? '-' : '+') + Math.abs(delta).toFixed(2)).padEnd(10);
+export const colorizeDeltaUsd = (symbol: string, delta: number, width: number = 10): string => {
+    let deltaStr: string = ((delta < 0 ? '-' : '+') + Math.abs(delta).toFixed(2)).padEnd(width);
     const fraction: number = Math.abs(state.deltas[symbol] || 0) / Object.keys(state.currencies).map(c => state.deltas[c] || 0).reduce((acc, d) => Math.max(acc, Math.abs(d)), 0);
     const c1: number = state.selectedRow === Object.keys(state.currencies).sort().indexOf(symbol) ? 150 : 100;
     const c2: number = state.selectedRow === Object.keys(state.currencies).sort().indexOf(symbol) ? 100 : (delta > 0 ? 50 : 25);
@@ -127,9 +135,9 @@ export const makeVelocitySymbol = (velocity: number): string => {
         + chalk.white(velocity >= 0 ? positiveNeg[index] : negativePos[index]);
 }
 
-export const colorizeSymbolProfit = async (symbol: string, delta: number): Promise<string> => {
+export const colorizeSymbolProfit = async (symbol: string, delta: number, width: number = 10): Promise<string> => {
     const alpha: number = clamp(1.0 - (Date.now() - (state.assets[symbol].showTradeStartTime?.getTime() || 0)) / 10.0);
-    const deltaStr: string = ((delta < 0 ? '-' : '+') + Math.abs(delta).toFixed(2)).padEnd(10);
+    const deltaStr: string = ((delta < 0 ? '-' : '+') + Math.abs(delta).toFixed(2)).padEnd(width);
     const maxDeltaProfit: number = Math.max(...await Promise.all(Object.keys(state.currencies).map(c => readProfits(c).then(profit => Math.abs(profit)))));
     const fraction: number = Math.abs(delta / maxDeltaProfit);
     const isSelected: boolean = Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow;
@@ -176,13 +184,107 @@ function colorizeChangedPart(symbol: string, prev: number, next: number, padding
         (prevStr < nextStr ? chalk.green(nextStr.substring(diffIndex + 1)) :
             chalk.red(nextStr.substring(diffIndex + 1))) + ' '.repeat(Math.max(0, padding - nextStr.length));
 }
+export function createSymbolTable(): CLITable {
+    const symbols: string[] = Object.keys(state.currencies).sort();
+    const table = new CLITable(symbols.length, 9);
 
+    table.setColumnWidth(0, 10);
+    table.setColumnWidth(1, 13);
+    table.setColumnWidth(2, 10);
+    table.setColumnWidth(3, 5);
+    table.setColumnWidth(4, 10);
+    table.setColumnWidth(6, 1);
+    table.setColumnWidth(7, 12);
+    table.setColumnWidth(8, 8);
+
+    symbols.forEach((symbol, i) => {
+
+        table.setCell(i, 0, async (width) => (state.assets[symbol].currentOrder ? '⌛' : '📈') + ' ' + symbol.padEnd(width - 2));
+
+        table.setCell(i, 1, async (width) => makeVelocitySymbol((state.velocities[symbol] || 0)) +
+            colorizeChangedPart(symbol, state.assets[symbol].price - state.assets[symbol].deltaPrice, state.assets[symbol].price, width - 1));
+
+        table.setCell(i, 2, ((symbol: string) => async (width: number) => {
+
+            const targetBalance = state.currencies[symbol] || 0;
+
+            const isSelected: boolean = Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow;
+            const total: number = Object.keys(state.currencies).reduce((acc, s) => acc + (state.currencies[s] || 0), 0);
+            const max: number = Object.keys(state.currencies).reduce((acc, s) => Math.max(acc, state.currencies[s] / total), 0);
+            const fraction: number = Math.pow(targetBalance / total / max, 1.0 / Math.E);
+
+            return progressBarText({ current: fraction, max: 1.0 }, width, targetBalance.toFixed(0),
+                isSelected ? [32, 180, 180] : [10, 120, 120],
+                isSelected ? [0, 64, 128] : [0, 32, 32],
+                isSelected ? [225, 225, 225] : [192, 192, 192],
+                isSelected ? [250, 250, 250] : [210, 210, 210]
+            );
+        })(symbol));
+
+        table.setCell(i, 3, async (width: number) => {
+            const effectiveAPR = await getStakingEffectiveAPR(symbol);
+            return lerpChalk([200, 200, 200], [100, 255, 100], remap(effectiveAPR, [0, 0.005]))((effectiveAPR * 100).toFixed(2).padStart(width));
+        });
+
+        table.setCell(i, 4, async (width: number) => {
+            const deltaUsd: number = state.deltas[symbol] || 0;
+            return (deltaUsd < 0 ? (-deltaUsd > state.assets[symbol].sellThreshold ? chalk.greenBright : chalk.green) :
+                (deltaUsd > state.assets[symbol].buyThreshold ? chalk.redBright : chalk.red))(colorizeDeltaUsd(symbol, -deltaUsd, width));
+        });
+
+        table.setCell(i, 5, async (width: number) => {
+            return await colorizeSymbolProfit(symbol, await readProfits(symbol, '1 day'), width);
+        });
+        table.setCell(i, 6, async (width: number) =>
+            (state.assets[symbol].staking ? '💸' : '💰').padStart(width));
+
+        table.setCell(i, 7, async (width: number) => {
+            const maxSellThreshold = Math.max(...Object.keys(state.assets).map(s => state.assets[s].sellThreshold));
+            var sellThresholdPadding = maxSellThreshold.toFixed(0).length;
+            const maxBuyThreshold = Math.max(...Object.keys(state.assets).map(s => state.assets[s].buyThreshold));
+            var buyThresholdPadding = maxBuyThreshold.toFixed(0).length;
+            const maxDailyLoss = Math.max(...Object.keys(state.assets).map(s => state.assets[s].maxDailyLoss));
+            var dailyLossPadding = maxDailyLoss.toFixed(0).length;
+            const totalPadding = (sellThresholdPadding + buyThresholdPadding + dailyLossPadding);
+
+            sellThresholdPadding = Math.round(sellThresholdPadding / totalPadding * width);
+            buyThresholdPadding = Math.round(buyThresholdPadding / totalPadding * width);
+            dailyLossPadding = Math.round(dailyLossPadding / totalPadding * width);
+
+            const isSelected: boolean = Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow;
+            const loss = {
+                current: Math.max(0, state.assets[symbol].maxDailyLoss + (await readProfits(symbol))),
+                max: state.assets[symbol].maxDailyLoss
+            };
+
+            return chalk.bgRgb(isSelected ? 100 : 50, isSelected ? 100 : 50, isSelected ? 100 : 50)(lerpChalk([255, 0, 0], [0, 255, 0], loss.max === 0 ? 0 : loss.current / loss.max)(verticalBar(loss)) + state.assets[symbol].maxDailyLoss.toFixed(0).padEnd(dailyLossPadding)) +
+                (state.assets[symbol].enableSell ? chalk.bgRgb(isSelected ? 50 : 25, isSelected ? 100 : 50, isSelected ? 50 : 25) : chalk.bgRgb(isSelected ? 100 : 50, isSelected ? 100 : 50, isSelected ? 100 : 50))(
+                    `${state.assets[symbol].enableSell ? '🟢' : '🟥'}` +
+                    `${chalk.green(state.assets[symbol].sellThreshold.toFixed(0).padEnd(sellThresholdPadding))}`) +
+                (state.assets[symbol].enableBuy ? chalk.bgRgb(isSelected ? 50 : 25, isSelected ? 100 : 50, isSelected ? 50 : 25) : chalk.bgRgb(isSelected ? 100 : 50, isSelected ? 100 : 50, isSelected ? 100 : 50))(`${state.assets[symbol].enableBuy ? '🟢' : '🟥'}` +
+                    `${chalk.red('-' + state.assets[symbol].buyThreshold.toFixed(0).padEnd(buyThresholdPadding))}`);
+        });
+
+        table.setCell(i, 8, async (width: number) => {
+            const PNL: number = (await readProfits(symbol, 'all time') || 0) + await getAssetBallance(symbol) * state.assets[symbol].price;
+            return lerpChalk([200, 0, 0], [0, 200, 0], PNL > 0 ? 1 : 0)(PNL.toFixed(2).padStart(width));
+        });
+
+    });
+
+    return table;
+}
+
+var symbolTable: CLITable|undefined=undefined;
 export async function printSymbol(symbol: string): Promise<void> {
 
     if (!(symbol in state.assets)) {
         return;
     }
-
+    if (symbolTable === undefined) {
+        symbolTable = createSymbolTable();
+    }
+/*
     let deltaPrice: number = state.assets[symbol].deltaPrice || 0;
 
     const symbolProfit: number = await readProfits(symbol, '1 day');
@@ -212,9 +314,10 @@ export async function printSymbol(symbol: string): Promise<void> {
         max: state.assets[symbol].maxDailyLoss
     };
 
-    function remap(a: number, from: number[], to: number[] = [0, 1]): number {
-        return (a - from[0]) / (from[1] - from[0]) * (to[1] - to[0]) + to[0];
-    }
+    const maxSellThreshold = Math.max(...Object.keys(state.assets).map(s => state.assets[s].sellThreshold));
+    const sellThresholdPadding = maxSellThreshold.toFixed(0).length;
+    const maxBuyThreshold = Math.max(...Object.keys(state.assets).map(s => state.assets[s].buyThreshold));
+    const buyThresholdPadding = maxBuyThreshold.toFixed(0).length;
     // const buyPrice = await getAvgBuyPrice(symbol);
     // const buyRatio = clamp((buyPrice - state.assets[symbol].price) / (state.assets[symbol].price * 0.1), -1, 1);
     state.assets[symbol].statusLine = `${state.assets[symbol].orderInProgress?'⌛':'📈'} ${symbol.padEnd(8)} ${makeVelocitySymbol((state.velocities[symbol] || 0))}` +
@@ -229,15 +332,16 @@ export async function printSymbol(symbol: string): Promise<void> {
             (deltaUsd > state.assets[symbol].buyThreshold ? chalk.redBright : chalk.red))(colorizeDeltaUsd(symbol, -deltaUsd))} ` +
         await colorizeSymbolProfit(symbol, symbolProfit) + ' ' +
         (state.assets[symbol].staking ? '💸' : '💰') + ' ' +
+
         chalk.bgRgb(isSelected ? 100 : 50, isSelected ? 100 : 50, isSelected ? 100 : 50)(lerpChalk([255,0,0],[0,255,0],loss.max === 0 ? 0 : loss.current / loss.max)(verticalBar(loss)) + state.assets[symbol].maxDailyLoss.toFixed(0).padEnd(4)) +
         (state.assets[symbol].enableSell ? chalk.bgRgb(isSelected ? 50 : 25, isSelected ? 100 : 50, isSelected ? 50 : 25) : chalk.bgRgb(isSelected ? 100 : 50, isSelected ? 100 : 50, isSelected ? 100 : 50))(
             `${state.assets[symbol].enableSell ? '🟢' : '🟥'}` +
-            `${chalk.green(state.assets[symbol].sellThreshold.toFixed(0).padEnd(4))}`) +
+            `${chalk.green(state.assets[symbol].sellThreshold.toFixed(0).padEnd(sellThresholdPadding))}`) +
             (state.assets[symbol].enableBuy ? chalk.bgRgb(isSelected ? 50 : 25, isSelected ? 100 : 50, isSelected ? 50 : 25) : chalk.bgRgb(isSelected ? 100 : 50, isSelected ? 100 : 50, isSelected ? 100 : 50))(`${state.assets[symbol].enableBuy ? '🟢' : '🟥'}` +
-            `${chalk.red('-' + state.assets[symbol].buyThreshold.toFixed(0).padEnd(4))}`) +
+            `${chalk.red('-' + state.assets[symbol].buyThreshold.toFixed(0).padEnd(buyThresholdPadding))}`) +
 
        lerpChalk([200, 0, 0], [0, 200, 0], PNL > 0 ? 1 : 0)(PNL.toFixed(2).padStart(9));
-
+*/
     const keys: string[] = Object.keys(state.currencies).sort();
     const lineIndex = keys.indexOf(symbol) - state.symbolsScroll;
     const scrollBarChar = scrollBar({
@@ -246,12 +350,14 @@ export async function printSymbol(symbol: string): Promise<void> {
         height: state.symbolsHeight
     }).split('')[lineIndex];
 
+
     if (lineIndex >= 0 && lineIndex < state.symbolsHeight) {
+        const str = await symbolTable.renderRow(Object.keys(state.currencies).sort().indexOf(symbol));
         readline.cursorTo(process.stdout, 0, lineIndex);
         if (keys.indexOf(symbol) == state.selectedRow) {
-            process.stdout.write(chalk.bgBlackBright(state.assets[symbol].statusLine) + scrollBarChar);
+            process.stdout.write(chalk.bgBlackBright(str));
         } else {
-            process.stdout.write(state.assets[symbol].statusLine + scrollBarChar);
+            process.stdout.write(str);
         }
     }
 
@@ -387,12 +493,10 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
 
         const calcRelativeMA = (symbol: string, value: number): number => {
             value = value || 0;
-            let diff: number = (value - state.assets[symbol].price) / state.assets[symbol].price * 100;
-            diff = Math.min(1.0, Math.max(-1.0, diff / 10));
-
-            const current = clamp(state.assets[symbol].price * 0.2 - Math.max(0, value - state.assets[symbol].price + state.assets[symbol].price * 0.1));
-            return clamp(current / (state.assets[symbol].price * 0.2));
+            const current = clamp(state.assets[symbol].price * 0.2 - Math.max(0, value - state.assets[symbol].price * 0.9));
+            return clamp(state.assets[symbol].price > 0 ? (current / state.assets[symbol].price * 0.2) : 0);
         }
+
         const formatIndicator = (symbol: string, value: number): string => {
             if (isNaN(value)) {
                 return ' ';
@@ -501,8 +605,9 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
             `${formatRsiIndicator(indicators.stRSI[3].value)}`);
 
         const verdicts = ['SELL', 'SELL', 'HOLD', 'BUY', 'BUY'];
-        const alpha = (indicators.SMA.reduce((acc, x) => acc + (calcRelativeMA(symbol, x.value) || 0), 0) / indicators.SMA.length +
-            indicators.EMA.reduce((acc, x) => acc + (calcRelativeMA(symbol, x.value) || 0), 0) / indicators.EMA.length +
+        const alpha = (
+            indicators.SMA.reduce((acc, x) => acc - (calcRelativeMA(symbol, x.value) || 0), 0) / indicators.SMA.length +
+            indicators.EMA.reduce((acc, x) => acc - (calcRelativeMA(symbol, x.value) || 0), 0) / indicators.EMA.length +
             indicators.RSI.reduce((acc, x) => acc + clamp(x.value / 100 || 0), 0) / indicators.RSI.length +
             indicators.stRSI.reduce((acc, x) => acc + clamp(x.value / 100 || 0), 0) / indicators.stRSI.length) / 4;
         str[0] += ' ' + lerpChalk([255, 125, 125], [125, 255, 125], alpha)(verdicts[Math.min(verdicts.length - 1, Math.max(0, Math.round(alpha * (verdicts.length - 1))))]);
@@ -523,6 +628,137 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
     }
     drawCandlesStatusBar(symbol);
 }
+
+export async function renderEditableField(value: string, editing: boolean = false, width = 10): Promise<string> {
+    return value.padEnd(width);
+}
+
+class CLIEditableField {
+
+    public editing: boolean = false;
+
+    constructor(private getter: () => Promise<string>,
+        private setter: (value: string) => void,
+        public width: number = 10) {
+        this.width = width;
+    }
+
+    async getValue(): Promise<string> {
+        return this.getter();
+    }
+
+    set value(value: string) {
+        this.setter(value);
+    }
+
+    async render(): Promise<string> {
+        return (await this.getter()).substring(0, this.width - 1) + (this.editing ? '▏' : '').padEnd(this.width);
+    }
+
+}
+
+class CLILimitsWidget {
+
+    STOP: CLIEditableField;
+    STOP_REBUY: CLIEditableField;
+    TAKE: CLIEditableField;
+    TAKE_REBUY: CLIEditableField;
+
+    get editing(): boolean {
+        return this.STOP.editing || this.STOP_REBUY.editing || this.TAKE.editing || this.TAKE_REBUY.editing;
+    }
+
+    constructor(private symbol: string,
+        public width: number = 30) {
+        const widgetWidth = (width - ('STOP: '.length + 'REBUY: '.length)) / 2;
+
+        this.STOP = new CLIEditableField(async () => formatAssetQuantity(symbol, state.assets[symbol].stopLossPrice),
+            (value: string) => state.assets[symbol].stopLossPrice = parseFloat(value), widgetWidth);
+        this.STOP_REBUY = new CLIEditableField(async () => formatAssetQuantity(symbol, state.assets[symbol].stopLossRebuyPrice),
+            (value: string) => state.assets[symbol].stopLossRebuyPrice = parseFloat(value), widgetWidth);
+        this.TAKE = new CLIEditableField(async () => formatAssetQuantity(symbol, state.assets[symbol].takeProfitPrice),
+            (value: string) => state.assets[symbol].takeProfitPrice = parseFloat(value), widgetWidth);
+        this.TAKE_REBUY = new CLIEditableField(async () => formatAssetQuantity(symbol, state.assets[symbol].takeProfitRebuyPrice),
+            (value: string) => state.assets[symbol].takeProfitRebuyPrice = parseFloat(value), widgetWidth);
+    }
+
+    async render(): Promise<string[]> {
+        activeLimitsWidget = this;
+        const stopStr: string = `STOP: ${await this.STOP.render()}`;
+        const stopRebuyStr: string = `REBUY: ${await this.STOP_REBUY.render()}`;
+        const takeStr: string = `TAKE: ${await this.TAKE.render()}`;
+        const takeRebuyStr: string = `REBUY: ${await this.TAKE_REBUY.render()}`;
+
+        return [
+            `${stopStr} ${stopRebuyStr}`,
+            `${takeStr} ${takeRebuyStr}`
+        ];
+    }
+
+    async handleDoubleClick(x: number, y: number): Promise<void> {
+        const stopStr: string = `STOP: ${await this.STOP.render()}`;
+        const stopRebuyStr: string = `REBUY: ${await this.STOP_REBUY.render()}`;
+        const takeStr: string = `TAKE: ${await this.TAKE.render()}`;
+        const takeRebuyStr: string = `REBUY: ${await this.TAKE_REBUY.render()}`;
+
+        if (x >= 0 && x < stopStr.length && y === 0) {
+            this.STOP.editing = true;
+        } else if (x >= stopStr.length + 1 && x < stopStr.length + 1 + stopRebuyStr.length && y === 0) {
+            this.STOP_REBUY.editing = true;
+        } else if (x >= 0 && x < takeStr.length && y === 1) {
+            this.TAKE.editing = true;
+        } else if (x >= takeStr.length + 1 && x < takeStr.length + 1 + takeRebuyStr.length && y === 1) {
+            this.TAKE_REBUY.editing = true;
+        }
+    }
+
+    async handleInput(key: string): Promise<void> {
+        if (!this.editing) {
+            return;
+        }
+        if (this.STOP.editing) {
+            this.STOP.value += key;
+        } else if (this.STOP_REBUY.editing) {
+            this.STOP_REBUY.value += key;
+        }
+        else if (this.TAKE.editing) {
+            this.TAKE.value += key;
+        } else if (this.TAKE_REBUY.editing) {
+            this.TAKE_REBUY.value += key;
+        }
+    }
+
+    async handleEnter(): Promise<void> {
+        if (!this.editing) {
+            return;
+        }
+        if (this.STOP.editing) {
+            this.STOP.editing = false;
+            state.assets[this.symbol].stopLossPrice = parseFloat(await this.STOP.getValue());
+        } else if (this.STOP_REBUY.editing) {
+            this.STOP_REBUY.editing = false;
+            state.assets[this.symbol].stopLossRebuyPrice = parseFloat(await this.STOP_REBUY.getValue());
+        } else if (this.TAKE.editing) {
+            this.TAKE.editing = false;
+            state.assets[this.symbol].takeProfitPrice = parseFloat(await this.TAKE.getValue());
+        } else if (this.TAKE_REBUY.editing) {
+            this.TAKE_REBUY.editing = false;
+            state.assets[this.symbol].takeProfitRebuyPrice = parseFloat(await this.TAKE_REBUY.getValue());
+        }
+        activeLimitsWidget = undefined;
+    }
+
+}
+const limitsWidgets: {
+    [key: string]: CLILimitsWidget
+} = {}
+export var activeLimitsWidget: CLILimitsWidget|undefined = undefined;
+
+export async function renderStopLimitWidget(symbol: string): Promise<string[]> {
+    const widgets = (symbol in limitsWidgets) ? limitsWidgets[symbol] : (limitsWidgets[symbol] = new CLILimitsWidget(symbol, 30));
+    return widgets.render();
+}
+
 export async function drawCandlesStatusBar(symbol: string): Promise<void> {
     const isSelected: boolean = Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow;
 
@@ -573,13 +809,19 @@ export async function drawCandlesStatusBar(symbol: string): Promise<void> {
 
         readline.cursorTo(process.stdout, candlesX, state.candles.height);
         process.stdout.write(statusStr);
+        readline.cursorTo(process.stdout, candlesX, state.candles.height + 1);
+        const stopLimitWidget: string[] = await renderStopLimitWidget(symbol);
+        for (const [index, line] of stopLimitWidget.entries()) {
+            readline.cursorTo(process.stdout, candlesX, state.candles.height + 1 + index);
+            process.stdout.write(line);
+        }
     }
 }
 
 export function printTrades(): void {
 
     const maxLines = (Settings.drawCandles && state.selectedRow >= 0)
-        ? (process.stdout.rows || 80) - state.candles.height - 3
+        ? (process.stdout.rows || 80) - state.candles.height - 3 - 2
         : (process.stdout.rows || 80) - 1;
     state.tradeScroll = Math.min(state.tradeScroll, Math.max(0, tradeLog.length - maxLines));
 
@@ -590,14 +832,14 @@ export function printTrades(): void {
         const line = lines[i];
         readline.cursorTo(process.stdout,
             state.candles.XBase,
-            (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i : i);
+            (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i +2: i);
         process.stdout.write(line.toString() + ' '.repeat((process.stdout.columns || 120) - state.candles.XBase - line.toPlainTextString().length - 2));
     }
 
     scrollBar({ position: pos, total: tradeLog.length, height: maxLines }).split('').forEach((c, i) => {
         readline.cursorTo(process.stdout,
             process.stdout.columns! - 1,
-            (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i : 1 + i);
+            (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i +2: 1 + i);
         process.stdout.write((state.tradesScrollHover ? chalk.whiteBright : chalk.white)(c));
     });
 

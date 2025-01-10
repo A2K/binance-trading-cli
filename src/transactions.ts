@@ -9,7 +9,7 @@ import cache from 'memory-cache';
 
 dotenv.config();
 
-const sql = postgres({
+export const sql = postgres({
     hostname: process.env.TIMESCALEDB_HOST || 'localhost',
     username: 'postgres',
     password: process.env.TIMESCALEDB_PASSWORD,
@@ -95,7 +95,7 @@ export async function pullNewTransactions(pair: string): Promise<void> {
         return;
     }
 
-    log(`Received ${chalk.yellow(trades.length)} new transactions for ${chalk.whiteBright(pair)}`);
+    log(`Loaded ${chalk.yellow(trades.length)} new transactions for ${chalk.whiteBright(pair)}`);
 
     await Promise.all(trades.map(async trade => await sql`
         INSERT INTO transactions

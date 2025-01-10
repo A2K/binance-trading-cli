@@ -3,6 +3,8 @@ import { Candle, LiveCandleData } from './candles.js';
 import { getConfig } from './settings';
 import Symbol from './symbol';
 import binance from './binance-ext/throttled-binance-api.js';
+import { log } from './ui.js';
+import { formatAssetQuantity } from './utils.js';
 
 type CandleTimeScale = '1s' | '1m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M';
 
@@ -10,11 +12,18 @@ class Wallet {
     private assets: { [key: string]: AssetBalance } = {};
     private upToDate: { [key: string]: boolean } = {};
 
+    constructor() {
+        this.init();
+    }
+
     async init() {
         await this.update();
         binance.ws.user(async (msg) => {
             if (msg.eventType === 'outboundAccountPosition') {
                 for (const balance of msg.balances!) {
+                    log(`ℹ️${balance.asset} ` +
+                        `🪙${formatAssetQuantity(balance.asset, parseFloat(balance.free))}` +
+                        `🔒${formatAssetQuantity(balance.asset, parseFloat(balance.locked))}`);
                     this.assets[balance.asset] = balance;
                     this.upToDate[balance.asset] = true;
                 }

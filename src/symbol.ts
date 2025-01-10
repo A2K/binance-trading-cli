@@ -1,6 +1,7 @@
-import { Ticker } from 'binance-api-node';
+import { Order, Ticker } from 'binance-api-node';
 import { Settings, thresholds, enabledBuys, enabledSells, maxDailyLosses, interpSpeeds, saveConfigFile, getConfig } from './settings';
 import { Indicators } from './indicators';
+import { OptimizedOrder } from './optimized-order';
 
 
 export class IndicatorValues {
@@ -18,6 +19,7 @@ export class Symbol implements Ticker {
     statusLine: string = '';
     minNotional: number = 10;
     stepSize: number = 0.0001;
+    tickSize: number = 0.0001;
     minQty: number = 0.0001;
 
     eventType: string;
@@ -45,11 +47,52 @@ export class Symbol implements Ticker {
 
     indicatorValues: IndicatorValues = new IndicatorValues();
 
-    public orderInProgress: boolean = false;
     public stakingInProgress: boolean = false;
     public orderAwaitingBalanceUpdate: boolean = false;
 
     showTradeStartTime?: Date;
+
+    currentOrder?: OptimizedOrder;
+
+    get stopLossPrice(): number {
+        return getConfig('stopLoss', {})[this.symbol] || -1;
+    }
+
+    set stopLossPrice(value: number) {
+        const stopLoss = getConfig('stopLoss', {});
+        stopLoss[this.symbol] = value;
+        saveConfigFile('stopLoss', stopLoss);
+    }
+
+    get takeProfitPrice(): number {
+        return getConfig('takeProfit', {})[this.symbol] || -1;
+    }
+
+    set takeProfitPrice(value: number) {
+        const takeProfit = getConfig('takeProfit', {});
+        takeProfit[this.symbol] = value;
+        saveConfigFile('takeProfit', takeProfit);
+    }
+
+    get stopLossRebuyPrice(): number {
+        return getConfig('stopLossRebuy', {})[this.symbol] || -1;
+    }
+
+    set stopLossRebuyPrice(value: number) {
+        const stopLossRebuy = getConfig('stopLossRebuy', {});
+        stopLossRebuy[this.symbol] = value;
+        saveConfigFile('stopLossRebuy', stopLossRebuy);
+    }
+
+    get takeProfitRebuyPrice(): number {
+        return getConfig('takeProfitRebuy', {})[this.symbol] || -1;
+    }
+
+    set takeProfitRebuyPrice(value: number) {
+        const takeProfitRebuy = getConfig('takeProfitRebuy', {});
+        takeProfitRebuy[this.symbol] = value;
+        saveConfigFile('takeProfitRebuy', takeProfitRebuy);
+    }
 
     get lowPrice(): number {
         return parseFloat(this.low);

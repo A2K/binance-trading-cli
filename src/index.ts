@@ -2,7 +2,7 @@ import cache from 'memory-cache';
 import dotenv from 'dotenv';
 import state from './state';
 import { log, printSymbol, printTrades, printTransactions } from './ui';
-import { pullNewTransactions, readTransactionLog, refreshMaterializedViews, updateTransactionsForAllSymbols } from './transactions';
+import { pullNewTransactions, readTransactionLog, refreshMaterializedViews, sql, updateTransactionsForAllSymbols } from './transactions';
 import Symbol from './symbol';
 import tick from './tick';
 import readline from 'readline';
@@ -10,15 +10,16 @@ import 'source-map-support/register';
 import registerInputHandlers from './input';
 import Settings from './settings';
 
-import { clearStakingCache, getStakingAccount } from './autostaking';
+import { clearProfitsCache, clearStakingCache, getStakingAccount } from './autostaking';
 
 dotenv.config();
 import binance from './binance-ext/throttled-binance-api';
-import { bgLerp, circleIndicator, lerp, lerpChalk, lerpColor, limitIndicator, progressBar, verticalBar } from './utils';
+import { bgLerp, circleIndicator, formatAssetPrice, lerp, lerpChalk, lerpColor, limitIndicator, progressBar, verticalBar } from './utils';
 import chalk from 'chalk';
+import { ExchangeInfo, SymbolFilter, SymbolMinNotionalFilter, SymbolLotSizeFilter } from 'binance-api-node';
 
 async function updateStepSize(symbol: string): Promise<void> {
-    const info1: any = await binance.exchangeInfo({ symbol: `${symbol}${Settings.stableCoin}` });
+    const info1: ExchangeInfo = await binance.exchangeInfo({ symbol: `${symbol}${Settings.stableCoin}` });
     for (const s of info1.symbols) {
         if (!s.symbol.endsWith(Settings.stableCoin)) {
             continue;
@@ -27,15 +28,19 @@ async function updateStepSize(symbol: string): Promise<void> {
         if (!(symbol in state.currencies)) {
             continue;
         }
-        const lotSizeFilter: any = s.filters.find((f: { filterType: string; }) => f.filterType === 'LOT_SIZE');
+
+        const lotSizeFilter: any = s.filters.find((f: SymbolFilter) => f.filterType === 'LOT_SIZE');
+        const priceFilter:any = s.filters.find((f: SymbolFilter) => f.filterType === 'PRICE_FILTER');
         const stepSize: number = parseFloat(lotSizeFilter.stepSize);
+        const tickSize: number = parseFloat(priceFilter.tickSize);
         const minQty: number = parseFloat(lotSizeFilter.minQty);
         if (symbol in state.assets) {
             state.assets[symbol].stepSize = stepSize;
+            state.assets[symbol].tickSize = tickSize;
             state.assets[symbol].minQty = minQty;
         }
 
-        const minNotionalFilter: any = s.filters.find((f: { filterType: string; }) => f.filterType === 'NOTIONAL');
+        const minNotionalFilter: any = s.filters.find((f: SymbolFilter) => f.filterType === 'MIN_NOTIONAL');
         if (minNotionalFilter) {
             const minNotional: number = parseFloat(minNotionalFilter.minNotional);
             if (symbol in state.assets) {
@@ -60,15 +65,55 @@ binance.init().then(async () => {
     ].sort();
 
     binance.ws.user(async msg => {
-        if (msg.eventType === 'outboundAccountPosition') {
-            for (const balance of msg.balances!) {
-                await pullNewTransactions(`${balance.asset}${Settings.stableCoin}`);
-                await refreshMaterializedViews();
-                clearStakingCache(balance.asset);
-                printTransactions(state.selectedRow >= 0 ? Object.keys(state.currencies).sort()[state.selectedRow] : undefined);
+        switch(msg.eventType) {
+            case 'outboundAccountPosition':
+                for (const balance of msg.balances!) {
+                    clearProfitsCache(balance.asset);
+                    state.wallet.markOutOfDate(balance.asset);
+                    printTransactions(state.selectedRow >= 0 ? Object.keys(state.currencies).sort()[state.selectedRow] : undefined);
+                    printSymbol(balance.asset);
+                }
+                break;
+            case 'executionReport':
+                const asset = msg.symbol.replace(/USD[CT]$/, '');
+                const currency = msg.symbol.replace(/.*(USD[TC])$/, "$1");
+                switch (msg.orderStatus) {
+                    case 'FILLED':
+                        log(`Order ${chalk.cyan(msg.orderId)} filled for ${chalk.whiteBright(msg.symbol)} at ${chalk.yellow(parseFloat(msg.totalQuoteTradeQuantity) / parseFloat(msg.quantity))}`);
+                        if (state.assets[asset].currentOrder) {
+                            if (await state.assets[asset].currentOrder.complete(msg)) {
+                                delete state.assets[asset].currentOrder;
+                            }
+                        }
 
-                printSymbol(balance.asset);
-            }
+                        await sql`
+                        INSERT INTO transactions
+                            (time, id, symbol, currency, "orderId", "orderListId", price, qty, "quoteQty",
+                            commission, "commissionAsset", "isBuyer", "isMaker", "isBestMatch")
+                        VALUES (${new Date(msg.orderTime)}, ${msg.tradeId},
+                            ${asset}, ${currency},
+                            ${msg.orderId}, ${msg.orderListId}, ${parseFloat(msg.totalQuoteTradeQuantity) / parseFloat(msg.quantity)}, ${msg.quantity},
+                            ${msg.totalQuoteTradeQuantity}, ${msg.commission}, ${msg.commissionAsset},
+                            ${msg.side === 'BUY'}, ${msg.isBuyerMaker}, FALSE)
+                        ON CONFLICT DO NOTHING`;
+                        await refreshMaterializedViews();
+                        clearProfitsCache(asset);
+                        printSymbol(asset);
+                        state.wallet.markOutOfDate(asset);
+                        state.wallet.markOutOfDate(currency);
+                        break;
+                    case 'REJECTED':
+                    case 'PENDING_CANCEL':
+                    case 'CANCELED':
+                    case 'EXPIRED':
+                        if (await state.assets[asset].currentOrder?.complete(msg)) {
+                            delete state.assets[asset].currentOrder;
+                            printSymbol(asset);
+                        }
+                        break;
+
+                }
+                break;
         }
     });
 

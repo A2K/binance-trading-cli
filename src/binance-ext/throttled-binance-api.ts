@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import Binance, { Account, CandleChartResult, CandlesOptions, ExchangeInfo, ExchangeInfoRateLimit, HttpMethod, MyTrade, NewOrderSpot, Order, RateLimitInterval_LT, WithdrawResponse } from "binance-api-node";
+import Binance, { Account, CancelOrderOptions, CancelOrderResult, CandleChartResult, CandlesOptions, ExchangeInfo, ExchangeInfoRateLimit, HttpMethod, MyTrade, NewOrderSpot, Order, RateLimitInterval_LT, TimeInForce, WithdrawResponse } from "binance-api-node";
 import { RateLimiter, RateLimiterOpts } from "limiter";
 import SimpleEarn from "./simple-earn-api";
 import StakingSOL from "./staking-sol";
@@ -46,6 +46,8 @@ function COUNT_WEIGHT(name: string, weight: number) {
     weightCount.set(name, (weightCount.get(name) || 0) + weight);
     // addLogMessage([...weightCount.entries()].map(([name, weight]) => `${name}: ${weight}`).join(', '));
 }
+
+type CancelReplaceResponse = { cancelResponse: CancelOrderResult, newOrderResponse: Order };
 
 export class ThrottledBinanceAPI {
 
@@ -126,7 +128,36 @@ export class ThrottledBinanceAPI {
         // this.stakingSOL = new StakingSOL(this);
     }
 
-    async order(options: NewOrderSpot): Promise<Order> {
+    async order(options: {
+        symbol: string, // Trading pair (e.g., BTCUSDT)
+        side: 'BUY' | 'SELL', // Order side
+        type: 'LIMIT' | 'MARKET' | 'STOP_LOSS' | 'STOP_LOSS_LIMIT' | 'TAKE_PROFIT' | 'TAKE_PROFIT_LIMIT' | 'LIMIT_MAKER', // Order type
+        timeInForce?: 'GTC' | 'IOC' | 'FOK', // Optional: Time in force
+        quantity?: string, // Optional: Amount of asset to buy/sell
+        quoteOrderQty?: number, // Optional: Quote asset amount to spend
+        price?: string, // Optional: Price for LIMIT orders
+        newClientOrderId?: string, // Optional: Unique ID for the order
+        strategyId?: number, // Optional: Strategy identifier
+        strategyType?: number, // Optional: Strategy type (>= 1000000)
+        stopPrice?: string, // Optional: Stop price for stop and take-profit orders
+        trailingDelta?: number, // Optional: Trailing delta for stop and take-profit orders
+        icebergQty?: number, // Optional: Iceberg order quantity
+        newOrderRespType?: 'ACK' | 'RESULT' | 'FULL', // Optional: Response type
+        selfTradePreventionMode?: 'STP_MODE_1' | 'STP_MODE_2' | 'STP_MODE_3', // Optional: Self-trade prevention mode
+        recvWindow?: number // Optional: Receive window (<= 60000)
+    }) {
+        await Promise.all([
+            this.orderRateLimiter.removeTokens(1),
+            this.weightLimiter.removeTokens(2),
+            this.countLimiter.removeTokens(1)
+        ]);
+        const response = await this.api.privateRequest('POST' as HttpMethod, '/api/v3/order', options);
+        return response as Order;
+    }
+
+    async _order(options: NewOrderSpot): Promise<Order> {
+        log('order', JSON.stringify(options));
+
         await Promise.all([
             this.orderRateLimiter.removeTokens(1),
             this.weightLimiter.removeTokens(2),
@@ -196,6 +227,12 @@ export class ThrottledBinanceAPI {
         return this.api.publicRequest(method, path, Object.assign(data, { timestamp: Date.now() }));
     }
 
+    async getOrder(symbol: string, orderId: number): Promise<Order> {
+        const weight = 1;
+        COUNT_WEIGHT('getOrder', weight);
+        return this.api.getOrder({ symbol, orderId });
+    }
+
     get canStakeOrRedeem(): boolean {
         return this.simpleEarn.__flexibleRateLimiter.getTokensRemaining() >= 1
             && this.weightLimiter.limiters[0].getTokensRemaining() >= 300;
@@ -215,6 +252,49 @@ export class ThrottledBinanceAPI {
         COUNT_WEIGHT('withdraw', weight);
         return this.api.withdraw(options);
     }
+
+    async cancelOrder(options: CancelOrderOptions): Promise<CancelOrderResult> {
+        COUNT_WEIGHT('cancelOrder', 1);
+        return this.api.cancelOrder(options);
+    }
+
+    async cancelReplace(options: {
+        symbol: string,
+        side: string,
+        type: string,
+        cancelReplaceMode: CancelReplaceMode,
+        timeInForce?: TimeInForce,
+        quantity?: string,
+        quoteOrderQty?: string,
+        price?: string,
+        cancelNewClientOrderId?: string,
+        cancelOrigClientOrderId?: string,
+        cancelOrderId?: number,
+        newClientOrderId?: number,
+        strategyId?: number,
+        strategyType?: number,
+        stopPrice?: string,
+        trailingDelta?: number,
+        icebergQty?: number,
+        newOrderRespType?: NewOrderRespType,
+        selfTradePreventionMode?: string,
+        cancelRestrictions?: string,
+        orderRateLimitExceededMode?: string,
+        recvWindow?: number,
+        timestamp?: number,
+    }): Promise<Order> {
+        COUNT_WEIGHT('cancelReplace', 1);
+        const response = await this.api.privateRequest('POST' as HttpMethod, '/api/v3/order/cancelReplace', Object.assign(options, { timestamp: Date.now() })) as CancelReplaceResponse;
+        return response.newOrderResponse;
+    }
+
+    async prices(options?: { symbol?: string }): Promise<{ [index: string]: string }> {
+        return this.api.prices(options);
+    }
+
+    // async limits(options) {
+    //     const response = this.privateRequest('GET', '/api/v3/rateLimit/order', options, 40);
+    // }
 }
 
 const binance = new ThrottledBinanceAPI({
@@ -223,3 +303,6 @@ const binance = new ThrottledBinanceAPI({
 });
 
 export default binance;
+
+type CancelReplaceMode = 'STOP_ON_FAILURE' | 'ALLOW_FAILURE';
+type NewOrderRespType = 'ACK' | 'RESULT' | 'FULL';
