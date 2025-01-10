@@ -61,18 +61,18 @@ export async function tick(priceInfo: Ticker): Promise<void> {
     if (state.assets[symbol].currentOrder) {
         const currentMarketPriceStr = formatAssetPrice(symbol, currentPrice);
         const currentMarketPrice = parseFloat(currentMarketPriceStr);
-        const orderMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].currentOrder.price);
+        const orderMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].currentOrder!.price);
         const orderMarketPrice = parseFloat(orderMarketPriceStr);
-        if (Math.sign(state.assets[symbol].currentOrder.quantity) !== Math.sign(quantity)) {
+        if (Math.sign(state.assets[symbol].currentOrder!.quantity) !== Math.sign(quantity)) {
             log.warn(`CANCELING ORDER: ${symbol} at ${orderMarketPriceStr} -> ${orderMarketPriceStr}`);
-            await state.assets[symbol].currentOrder.cancel();
+            await state.assets[symbol].currentOrder!.cancel();
             state.assets[symbol].currentOrder = undefined;
         } else if ((quantity > 0 && currentMarketPrice < orderMarketPrice) ||
                    (quantity < 0 && currentMarketPrice > orderMarketPrice)) {
             log.warn(`ADJUSTING ORDER: ${symbol} at ${orderMarketPriceStr} -> ${currentMarketPriceStr}`);
-            if (!(await state.assets[symbol].currentOrder.adjust(quantity, currentPrice))) {
+            if (!(await state.assets[symbol].currentOrder!.adjust(quantity, currentPrice))) {
                 if (state.assets[symbol].currentOrder) {
-                    await state.assets[symbol].currentOrder.cancel();
+                    await state.assets[symbol].currentOrder!.cancel();
                     state.assets[symbol].currentOrder = undefined;
                 }
             }
