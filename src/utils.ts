@@ -4,6 +4,7 @@ import state from './state';
 import { getStakedQuantity } from './autostaking';
 import cache from 'memory-cache';
 import { readTransactionLog } from './transactions';
+import Settings, { StableCoin } from './settings';
 
 export const clamp = (value: number, min: number = 0.0, max: number = 1.0): number => Math.min(max, Math.max(min, value));
 export const lerp = (from: number, to: number, alpha: number): number => from * (1.0 - clamp(alpha)) + to * clamp(alpha);
@@ -61,6 +62,11 @@ export async function getAssetBallanceFree(asset: string): Promise<number> {
 }
 
 export function formatAssetQuantity(asset: string, quantity: number): string {
+  if (Settings.stableCoins.includes(asset as StableCoin)) {
+    if (quantity > 0.01) {
+      return quantity.toFixed(2);
+    }
+  }
   const precision = 10; /*(asset in state.assets)
     ? clamp(Math.ceil(Math.log10(1.0 / state.assets[asset].stepSize)), 0, 8)
     : 8 /* default */;

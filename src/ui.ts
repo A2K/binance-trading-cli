@@ -41,7 +41,7 @@ export class LogMessage {
             switch (this.level) {
                 case 'info': return '📃';
                 case 'notice': return 'ℹ️';
-                case 'warn': return '🛎';
+                case 'warn': return '🛎 ';
                 case 'error': return '🚨';
                 default: return 'ℹ';
             }
@@ -50,16 +50,7 @@ export class LogMessage {
     }
 
     get length(): number {
-
-        const prefix = (() => {
-            switch (this.level) {
-                case 'info': return '📜';
-                case 'warn': return '📌';
-                case 'error': return '❌';
-                default: return 'ℹ';
-            }
-        })();
-        return 1 + ' '.length + timestampStr(this.time).length + ' '.length + this.message.length;
+        return 1 + ' '.length + timestampStr(this.time).length + ' '.length + strlen(this.message);
     }
 }
 

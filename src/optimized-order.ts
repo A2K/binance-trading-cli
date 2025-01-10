@@ -72,7 +72,7 @@ export class OptimizedOrder {
                     quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
                     type: 'STOP_LOSS',
                     stopPrice: `${formatAssetPrice(this.symbol, stopPrice)}`,
-                    cancelReplaceMode: 'STOP_ON_FAILURE'
+                    cancelReplaceMode: 'ALLOW_FAILURE'
                 });
             } else {
                 const stopPrice = this.price - maxPriceDelta;
@@ -83,7 +83,7 @@ export class OptimizedOrder {
                     quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
                     type: 'STOP_LOSS',
                     stopPrice: `${formatAssetPrice(this.symbol, stopPrice)}`,
-                    cancelReplaceMode: 'STOP_ON_FAILURE'
+                    cancelReplaceMode: 'ALLOW_FAILURE'
                 });
             }
         } catch (e) {
@@ -132,6 +132,11 @@ async function test() {
 // test()
 
 export async function order(symbol: string, quantity: number): Promise<boolean> {
+
+    if (state.assets[symbol].currentOrder) {
+        return false;
+    }
+
     if (quantity < 0) {
         if ((await state.wallet.free(symbol)) < Math.abs(quantity)) {
             const amountToUnstake = Math.abs(quantity) - (await state.wallet.free(symbol));
@@ -163,29 +168,11 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
         state.wallet.markOutOfDate(symbol);
     }
 
+    if (state.assets[symbol].currentOrder) {
+        return false;
+    }
+
     try {
-        if (state.assets[symbol].currentOrder) {
-
-            const currentMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].price);
-            const currentMarketPrice = parseFloat(currentMarketPriceStr);
-            const orderMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].currentOrder!.price);
-            const orderMarketPrice = parseFloat(orderMarketPriceStr);
-            if (Math.sign(state.assets[symbol].currentOrder!.quantity) == Math.sign(quantity)) {
-                if ((quantity > 0 && (currentMarketPrice > orderMarketPrice)) ||
-                    (quantity < 0 && (orderMarketPrice > currentMarketPrice))) {
-                    log.notice('Order already in progress with the same sign and better price');
-                    return false;
-                }
-            }
-            if (!await state.assets[symbol].currentOrder?.adjust(quantity, parseFloat(state.assets[symbol].bestBid))) {
-                log.err('Failed to adjust order, cancelling it');
-                await state.assets[symbol].currentOrder?.cancel();
-                delete state.assets[symbol].currentOrder;
-                return false;
-            }
-            return true;
-        }
-
         state.assets[symbol].currentOrder = new OptimizedOrder(symbol);
 
         const orderCreated = await state.assets[symbol].currentOrder!.adjust(quantity, state.assets[symbol].price);

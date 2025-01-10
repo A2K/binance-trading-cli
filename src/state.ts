@@ -5,6 +5,7 @@ import Symbol from './symbol';
 import binance from './binance-ext/throttled-binance-api.js';
 import { log } from './ui.js';
 import { formatAssetQuantity } from './utils.js';
+import chalk from 'chalk';
 
 type CandleTimeScale = '1s' | '1m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M';
 
@@ -20,10 +21,20 @@ class Wallet {
         await this.update();
         binance.ws.user(async (msg) => {
             if (msg.eventType === 'outboundAccountPosition') {
+                const updates = msg.balances.map((b: AssetBalance): [AssetBalance, number] => [b, parseFloat(b.free) + parseFloat(b.locked)
+                    - (parseFloat(this.assets[b.asset].free) || 0) - (parseFloat(this.assets[b.asset].locked) || 0)])
+                    .filter(([b, delta]) => Math.abs(delta) > 0.000001).map(([b, delta]) => {
+                        return (delta > 0
+                            ? chalk.greenBright(`+${formatAssetQuantity(b.asset, delta)}`)
+                            : chalk.redBright(`-${formatAssetQuantity(b.asset, -delta)}`)) + ' ' + chalk.whiteBright(b.asset);
+                    });
+                if (updates.length) {
+                    log(`${updates.join(', ')}`);
+                }
                 for (const balance of msg.balances!) {
-                    log(`ℹ️${balance.asset} ` +
-                        `🪙${formatAssetQuantity(balance.asset, parseFloat(balance.free))}` +
-                        `🔒${formatAssetQuantity(balance.asset, parseFloat(balance.locked))}`);
+                    // log(`ℹ️${balance.asset} ` +
+                    //     `🪙${formatAssetQuantity(balance.asset, parseFloat(balance.free))}` +
+                    //     `🔒${formatAssetQuantity(balance.asset, parseFloat(balance.locked))}`);
                     this.assets[balance.asset] = balance;
                     this.upToDate[balance.asset] = true;
                 }

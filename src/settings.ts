@@ -31,9 +31,9 @@ export function saveConfigFile(configFile: ConfigFile, value: any) {
     }))).execute();
 }
 
-type StableCoin = 'USDC' | 'USDT';
+export type StableCoin = 'USDC' | 'USDT';
 
-type SettingsType = {
+export type SettingsType = {
     buyThreshold: number,
     sellThreshold: number,
     maxDailyLoss: number,

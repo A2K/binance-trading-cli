@@ -59,24 +59,34 @@ export async function tick(priceInfo: Ticker): Promise<void> {
     }
 
     if (state.assets[symbol].currentOrder) {
-        const currentMarketPriceStr = formatAssetPrice(symbol, currentPrice);
-        const currentMarketPrice = parseFloat(currentMarketPriceStr);
-        const orderMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].currentOrder!.price);
-        const orderMarketPrice = parseFloat(orderMarketPriceStr);
-        if (Math.sign(state.assets[symbol].currentOrder!.quantity) !== Math.sign(quantity)) {
-            log.warn(`CANCELING ORDER: ${symbol} at ${orderMarketPriceStr} -> ${orderMarketPriceStr}`);
-            await state.assets[symbol].currentOrder!.cancel();
-            state.assets[symbol].currentOrder = undefined;
-        } else if ((quantity > 0 && currentMarketPrice < orderMarketPrice) ||
-                   (quantity < 0 && currentMarketPrice > orderMarketPrice)) {
-            log.warn(`ADJUSTING ORDER: ${symbol} at ${orderMarketPriceStr} -> ${currentMarketPriceStr}`);
-            if (!(await state.assets[symbol].currentOrder!.adjust(quantity, currentPrice))) {
-                if (state.assets[symbol].currentOrder) {
-                    await state.assets[symbol].currentOrder!.cancel();
-                    state.assets[symbol].currentOrder = undefined;
+        if (state.assets[symbol].orderCreationInProgress) {
+            return;
+        }
+        try {
+            state.assets[symbol].orderCreationInProgress = true;
+            const currentMarketPriceStr = formatAssetPrice(symbol, currentPrice);
+            const currentMarketPrice = parseFloat(currentMarketPriceStr);
+            const orderMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].currentOrder!.price);
+            const orderMarketPrice = parseFloat(orderMarketPriceStr);
+            if (Math.sign(state.assets[symbol].currentOrder!.quantity) !== Math.sign(quantity)) {
+                log.warn(`CANCELING ORDER: ${symbol} at ${orderMarketPriceStr} -> ${orderMarketPriceStr}`);
+                await state.assets[symbol].currentOrder!.cancel();
+                state.assets[symbol].currentOrder = undefined;
+            } else if ((quantity > 0 && currentMarketPrice < orderMarketPrice) ||
+                (quantity < 0 && currentMarketPrice > orderMarketPrice)) {
+                log.warn(`ADJUSTING ORDER: ${symbol} at ${orderMarketPriceStr} -> ${currentMarketPriceStr}`);
+                if (!(await state.assets[symbol].currentOrder!.adjust(quantity, currentPrice))) {
+                    if (state.assets[symbol].currentOrder) {
+                        await state.assets[symbol].currentOrder!.cancel();
+                        state.assets[symbol].currentOrder = undefined;
+                    }
                 }
             }
+        } catch (e) {
+            log.err('ADJUSTING ORDER FAILED: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ', e);
         }
+
+        state.assets[symbol].orderCreationInProgress = false;
         return;
     }
 
@@ -92,12 +102,11 @@ export async function tick(priceInfo: Ticker): Promise<void> {
         state.assets[symbol].forceTrade = true;
     }
 
-    const velocity: number = state.velocities[symbol] || 0;
     const forceTrade: boolean = state.assets[symbol].forceTrade;
     state.assets[symbol].forceTrade = false;
-    if (forceTrade //|| ((deltaUsd < 0 ? (velocity < 0.1) : (velocity > -0.1))
+    if (forceTrade
         || (((deltaUsd > state.assets[symbol].buyThreshold) && state.enableBuy && state.assets[symbol].enableBuy)
-            || deltaUsd < -state.assets[symbol].sellThreshold && state.assets[symbol].enableSell && state.enableSell)) {
+        || deltaUsd < -state.assets[symbol].sellThreshold && state.assets[symbol].enableSell && state.enableSell)) {
         try {
             if ('BNB' in state.assets) {
                 if (quantity > 0) {
@@ -122,11 +131,16 @@ export async function tick(priceInfo: Ticker): Promise<void> {
                     }
 
                     (async () => {
+                        if (state.assets[symbol].orderCreationInProgress) {
+                            return;
+                        }
+                        state.assets[symbol].orderCreationInProgress = true;
                         try {
                             await order(symbol, quantity);
                         } catch (e) {
                             log.err('TRADE FAILED: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ', e);
                         }
+                        state.assets[symbol].orderCreationInProgress = false;
                     })();
 
                 } else if (forceTrade) {

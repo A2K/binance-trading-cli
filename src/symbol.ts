@@ -52,6 +52,7 @@ export class Symbol implements Ticker {
 
     showTradeStartTime?: Date;
 
+    orderCreationInProgress: boolean = false;
     currentOrder?: OptimizedOrder;
 
     get stopLossPrice(): number {
