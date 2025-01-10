@@ -770,7 +770,8 @@ export async function drawCandlesStatusBar(symbol: string): Promise<void> {
     if (isSelected) {
         const width1: number = 20;
         readline.cursorTo(process.stdout, candlesX, state.candles.height);
-        const progress: number = clamp((state.assets[symbol].price - state.assets[symbol].lowPrice) / (state.assets[symbol].highPrice - state.assets[symbol].lowPrice));
+        const lowHighDelta = state.assets[symbol].highPrice - state.assets[symbol].lowPrice;
+        const progress: number = lowHighDelta === 0 ? 0 : clamp((state.assets[symbol].price - state.assets[symbol].lowPrice) / lowHighDelta);
 
         statusStr +=
             lerpChalk([255, 0, 0], [0, 255, 0], progress)(

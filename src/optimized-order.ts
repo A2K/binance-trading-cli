@@ -60,8 +60,8 @@ export class OptimizedOrder {
         try {
 
             const candles = await getCandles(this.symbol, '1m', 10);
-            // const maxPriceDelta = 0.25 * candles.reduce((acc, candle) => Math.max(acc, candle.high - candle.low), 0);
-            const maxPriceDelta = 0.25 * state.assets[this.symbol].tickSize;
+            const maxPriceDelta = 0.5 * candles.reduce((acc, candle) => acc + candle.high - candle.low, 0) / candles.length;
+            //const maxPriceDelta = 0.25 * state.assets[this.symbol].tickSize;
 
             if (this.quantity > 0) {
                 const stopPrice = this.price + maxPriceDelta;
@@ -137,8 +137,8 @@ async function test() {
 
 export async function order(symbol: string, quantity: number): Promise<boolean> {
     if (quantity < 0) {
-        if (await state.wallet.free(symbol) < Math.abs(quantity)) {
-            const amountToUnstake = marketCeil(symbol, Math.abs(quantity) - (await state.wallet.free(symbol)) / state.assets[symbol].price);
+        if ((await state.wallet.free(symbol)) < Math.abs(quantity)) {
+            const amountToUnstake = marketCeil(symbol, Math.abs(quantity) - (await state.wallet.free(symbol)) / parseFloat(state.assets[symbol].bestAsk));
             state.assets[symbol].stakingInProgress = true;
             try {
                 await redeemFlexibleProduct(symbol, amountToUnstake);
