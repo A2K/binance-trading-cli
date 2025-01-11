@@ -108,15 +108,21 @@ async function redeemBNSOL(amount: number): Promise<number> {
 
 async function stakeWBETH(amount: number): Promise<number> {
     var order: Order | undefined;
+    log('buying WBETH', JSON.stringify({
+        type: OrderType.MARKET,
+        symbol: 'WBETHETH',
+        side: 'BUY',
+        quantity: formatAssetQuantity('ETH', amount)
+    }));
     try {
         order = await binance.order({
             type: OrderType.MARKET,
             symbol: 'WBETHETH',
             side: 'BUY',
-            quantity: amount.toFixed(6)
+            quantity: formatAssetQuantity('ETH', amount)
         });
     } catch (e) {
-        log.err(`FAILED TO STAKE ${amount} ETH`);
+        log.err(`FAILED TO STAKE ${amount} ETH:`, e);
         return 0;
     }
 
@@ -434,4 +440,5 @@ export function clearProfitsCache(asset: string): void {
             k.startsWith(`readProfits-${asset}`) ||
             k.startsWith(`readProfits-undefined-`))
         .forEach(cache.del);
+        cache.del(`avgBuyPrice-${asset}`);
 }

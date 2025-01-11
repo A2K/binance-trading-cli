@@ -1,22 +1,23 @@
 import cache from 'memory-cache';
 import dotenv from 'dotenv';
 import state from './state';
-import { log, printSymbol, printTrades, printTransactions } from './ui';
+import { formatDeltaQuantity, log, parseAsset, printSymbol, printTrades, printTransactions } from './ui';
 import { pullNewTransactions, readTransactionLog, refreshMaterializedViews, sql, updateTransactionsForAllSymbols } from './transactions';
 import Symbol from './symbol';
 import tick from './tick';
 import readline from 'readline';
 import 'source-map-support/register';
-import registerInputHandlers from './input';
 import Settings from './settings';
 
 import { clearProfitsCache, clearStakingCache, getStakingAccount } from './autostaking';
 
 dotenv.config();
 import binance from './binance-ext/throttled-binance-api';
-import { bgLerp, circleIndicator, formatAssetPrice, lerp, lerpChalk, lerpColor, limitIndicator, progressBar, verticalBar } from './utils';
+import { bgLerp, circleIndicator, formatAssetPrice, formatAssetQuantity, lerp, lerpChalk, lerpColor, limitIndicator, progressBar, verticalBar } from './utils';
 import chalk from 'chalk';
-import { ExchangeInfo, SymbolFilter, SymbolMinNotionalFilter, SymbolLotSizeFilter } from 'binance-api-node';
+import { ExchangeInfo, SymbolFilter, SymbolMinNotionalFilter, SymbolLotSizeFilter, Order, OrderType_LT, UserDataStreamEvent, ExecutionReport } from 'binance-api-node';
+import { OptimizedOrder } from './optimized-order';
+import registerInputHandlers from './input';
 
 async function updateStepSize(symbol: string): Promise<void> {
     const info1: ExchangeInfo = await binance.exchangeInfo({ symbol: `${symbol}${Settings.stableCoin}` });
@@ -50,6 +51,18 @@ async function updateStepSize(symbol: string): Promise<void> {
     }
 }
 
+function parseOrderPrice(msg: ExecutionReport): string {
+    if (parseFloat(msg.price) !== 0) {
+        return msg.price;
+    } else if (parseFloat(msg.stopPrice) !== 0) {
+        return msg.stopPrice;
+    } else if (parseFloat(msg.priceLastTrade) !== 0) {
+        return msg.priceLastTrade;
+    }
+    return formatAssetPrice(msg.symbol.replace(/USD[TC]$/, ''),
+        parseFloat(msg.totalQuoteTradeQuantity) / parseFloat(msg.quantity));
+}
+
 binance.init().then(async () => {
 
     await getStakingAccount();
@@ -65,7 +78,7 @@ binance.init().then(async () => {
     ].sort();
 
     binance.ws.user(async msg => {
-        switch(msg.eventType) {
+        switch (msg.eventType) {
             case 'outboundAccountPosition':
                 for (const balance of msg.balances!) {
                     clearProfitsCache(balance.asset);
@@ -79,7 +92,7 @@ binance.init().then(async () => {
                 const currency = msg.symbol.replace(/.*(USD[TC])$/, "$1");
                 switch (msg.orderStatus) {
                     case 'FILLED':
-                        log(`Order ${chalk.cyan(msg.orderId)} filled for ${chalk.whiteBright(msg.symbol)} at ${chalk.yellow(parseFloat(msg.totalQuoteTradeQuantity) / parseFloat(msg.quantity))}`);
+                        log(`✅ ${chalk.yellow(msg.orderId)} ${formatDeltaQuantity(msg.symbol, msg.quantity)} ${chalk.whiteBright(msg.symbol)} at ${chalk.yellow(parseOrderPrice(msg))}`);
                         if (state.assets[asset].currentOrder) {
                             if (await state.assets[asset].currentOrder?.complete(msg)) {
                                 delete state.assets[asset].currentOrder;
@@ -97,21 +110,72 @@ binance.init().then(async () => {
                             ${msg.side === 'BUY'}, ${msg.isBuyerMaker}, FALSE)
                         ON CONFLICT DO NOTHING`;
                         await refreshMaterializedViews();
-                        clearProfitsCache(asset);
-                        printSymbol(asset);
                         state.wallet.markOutOfDate(asset);
                         state.wallet.markOutOfDate(currency);
+                        clearProfitsCache(asset);
+                        printSymbol(asset);
                         break;
                     case 'REJECTED':
                     case 'PENDING_CANCEL':
                     case 'CANCELED':
                     case 'EXPIRED':
+                        log(`❌ ${chalk.yellow(chalk.yellow(msg.orderId))} ${chalk.red(msg.orderStatus)}`);
                         if (await state.assets[asset].currentOrder?.complete(msg)) {
                             delete state.assets[asset].currentOrder;
+                            clearProfitsCache(asset);
                             printSymbol(asset);
                         }
                         break;
+                    case 'NEW':
+                        log('🆕', chalk.yellow(msg.orderId),
+                            formatDeltaQuantity(parseAsset(msg.symbol), parseFloat(msg.quantity) * (msg.side === 'BUY' ? 1 : -1)),
+                            chalk.whiteBright(msg.symbol), 'at', chalk.yellow(parseOrderPrice(msg)));
+                    case 'PARTIALLY_FILLED':
+                        if (msg.orderStatus === 'PARTIALLY_FILLED') {
+                            log('📥', chalk.yellow(msg.orderId), Math.round(parseFloat(msg.totalTradeQuantity) / parseFloat(msg.quantity) * 100) + '%');
+                        }
+                        if (state.assets[asset].currentOrder) {
+                            state.assets[asset].currentOrder!.order = {
+                                orderId: msg.orderId,
+                                orderListId: msg.orderListId,
+                                price: msg.price,
+                                stopPrice: msg.stopPrice,
+                                side: msg.side,
+                                symbol: msg.symbol,
+                                timeInForce: msg.timeInForce,
+                                clientOrderId: msg.newClientOrderId,
+                                cummulativeQuoteQty: msg.totalQuoteTradeQuantity,
+                                executedQty: msg.quantity,
+                                isWorking: msg.isOrderWorking,
+                                origQty: msg.quantity,
+                                status: msg.orderStatus,
+                                time: msg.orderTime,
+                                type: (msg.orderType as string) as OrderType_LT,
+                                updateTime: msg.eventTime
+                            };
+                        } else {
+                            const newOrder = new OptimizedOrder(asset);
+                            newOrder.order = {
+                                orderId: msg.orderId,
+                                orderListId: msg.orderListId,
+                                price: msg.price,
+                                stopPrice: msg.stopPrice,
+                                side: msg.side,
+                                symbol: msg.symbol,
+                                timeInForce: msg.timeInForce,
+                                clientOrderId: msg.newClientOrderId,
+                                cummulativeQuoteQty: msg.totalQuoteTradeQuantity,
+                                executedQty: msg.quantity,
+                                isWorking: msg.isOrderWorking,
+                                origQty: msg.quantity,
+                                status: msg.orderStatus,
+                                time: msg.orderTime,
+                                type: (msg.orderType as string) as OrderType_LT,
+                                updateTime: msg.eventTime
+                            };
 
+                            state.assets[asset].currentOrder = newOrder;
+                        }
                 }
                 break;
         }
@@ -136,12 +200,16 @@ binance.init().then(async () => {
 
         if (!(symbol in state.assets)) {
             state.assets[symbol] = new Symbol(symbol, priceInfo);
-            updateStepSize(symbol).catch(e => log.err(`Failed to update step size for ${symbol}`));
+            try {
+                await updateStepSize(symbol);
+            } catch (e) {
+                log.err(`Failed to update step size for ${symbol}`);
+            }
         } else {
             state.assets[symbol].update(priceInfo);
         }
 
-        if (symbol === 'BNSOL') {
+        if ([ 'BNSOL', 'WBETH' ].includes(symbol)) {
             return;
         }
 

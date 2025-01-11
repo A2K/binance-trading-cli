@@ -12,6 +12,8 @@ import { pullNewTransactions, refreshMaterializedViews } from './transactions';
 import chalk from 'chalk';
 import { getCandles } from './candles';
 
+const BUY = 'BUY';
+const SELL = 'SELL';
 export class OptimizedOrder {
 
     order?: Order;
@@ -25,15 +27,15 @@ export class OptimizedOrder {
         this.quantity = quantity;
         this.price = price;
         try {
-            const candles = await getCandles(this.symbol, '1m', 50);
-            const maxPriceDelta = 0.5 * candles.reduce((acc, candle) => acc + candle.high - candle.low, 0) / candles.length;
+            const maxPriceDelta = state.assets[this.symbol].tickSize * Settings.stopPriceOffsetMultiplier;
+            log('P', price, 'D', maxPriceDelta, 'NP', this.price + Math.sign(quantity) * this.maxPriceDelta);
 
             this.order = await binance.order({
                 symbol: `${this.symbol}${Settings.stableCoin}`,
-                side: this.quantity > 0 ? 'BUY' : 'SELL',
+                side: this.quantity > 0 ? BUY : SELL,
                 quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
                 type: 'STOP_LOSS',
-                stopPrice: `${formatAssetPrice(this.symbol, this.price + Math.sign(quantity) * maxPriceDelta)}`
+                stopPrice: `${formatAssetPrice(this.symbol, this.price + Math.sign(quantity) * this.maxPriceDelta)}`
             });
 
             return true;
@@ -49,6 +51,10 @@ export class OptimizedOrder {
         }
     }
 
+    get maxPriceDelta(): number {
+        return state.assets[this.symbol].tickSize * Settings.stopPriceOffsetMultiplier;
+    }
+
     async adjust(quantity: number, minPrice: number): Promise<boolean> {
         if (!this.order) {
             return this.create(quantity, minPrice);
@@ -56,46 +62,18 @@ export class OptimizedOrder {
 
         this.quantity = quantity;
         this.price = minPrice;
-
         try {
-
-            const candles = await getCandles(this.symbol, '1m', 50);
-            const maxPriceDelta = 0.5 * candles.reduce((acc, candle) => acc + candle.high - candle.low, 0) / candles.length;
-            //const maxPriceDelta = 0.25 * state.assets[this.symbol].tickSize;
-
-            if (this.quantity > 0) {
-                const stopPrice = this.price + maxPriceDelta;
-                this.order = await binance.cancelReplace({
-                    symbol: this.order.symbol,
-                    cancelOrderId: this.order.orderId,
-                    side: 'BUY',
-                    quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
-                    type: 'STOP_LOSS',
-                    stopPrice: `${formatAssetPrice(this.symbol, stopPrice)}`,
-                    cancelReplaceMode: 'ALLOW_FAILURE'
-                });
-            } else {
-                const stopPrice = this.price - maxPriceDelta;
-                this.order = await binance.cancelReplace({
-                    symbol: this.order.symbol,
-                    cancelOrderId: this.order.orderId,
-                    side: 'SELL',
-                    quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
-                    type: 'STOP_LOSS',
-                    stopPrice: `${formatAssetPrice(this.symbol, stopPrice)}`,
-                    cancelReplaceMode: 'ALLOW_FAILURE'
-                });
-            }
+            this.order = await binance.cancelReplace({
+                symbol: this.order.symbol,
+                cancelOrderId: this.order.orderId,
+                side: this.quantity > 0 ? BUY : SELL,
+                quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
+                type: 'STOP_LOSS',
+                stopPrice: `${formatAssetPrice(this.symbol, this.price + Math.sign(this.quantity) * this.maxPriceDelta)}`,
+                cancelReplaceMode: 'STOP_ON_FAILURE'
+            });
         } catch (e) {
             log.warn('Failed to adjust order:', e);
-            if ((e as Error).message === 'Error: Order cancel-replace partially failed.') {
-                // ???
-                return true;
-            }
-            if (this.order) {
-                await this.cancel();
-                delete this.order;
-            }
             return false;
         }
 
@@ -138,13 +116,11 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     }
 
     if (quantity < 0) {
-        if ((await state.wallet.free(symbol)) < Math.abs(quantity)) {
-            const amountToUnstake = Math.abs(quantity) - (await state.wallet.free(symbol));
+        if ((await state.wallet.total(symbol)) < Math.abs(quantity)) {
             state.assets[symbol].stakingInProgress = true;
+            const amountToUnstake = marketCeil(symbol, Math.abs(quantity) - (await state.wallet.total(symbol)));
             try {
                 await redeemFlexibleProduct(symbol, amountToUnstake);
-                clearStakingCache(symbol);
-                state.wallet.markOutOfDate(symbol);
             } catch (e) {
                 log.err(`Failed to redeem ${chalk.yellow(amountToUnstake)} ${chalk.whiteBright(symbol)}:`, e);
             }
@@ -152,10 +128,10 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     } else {
         if (await state.wallet.free(Settings.stableCoin) < quantity * state.assets[symbol].price) {
             state.assets[symbol].stakingInProgress = true;
-            const amountToUnstake = quantity * state.assets[symbol].price - (await state.wallet.free(Settings.stableCoin)) / state.assets[symbol].price;
+            const amountToUnstake = marketCeil(symbol, quantity * state.assets[symbol].price
+                - (await state.wallet.free(Settings.stableCoin)) / state.assets[symbol].price);
             try {
                 await redeemFlexibleProduct(Settings.stableCoin, marketCeil(symbol, amountToUnstake));
-
             } catch (e) {
                 log.err(`Failed to redeem ${chalk.yellow(amountToUnstake)} ${chalk.whiteBright(Settings.stableCoin)}:`, e);
             }
@@ -172,25 +148,15 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
         return false;
     }
 
-    try {
-        state.assets[symbol].currentOrder = new OptimizedOrder(symbol);
+    state.assets[symbol].currentOrder = new OptimizedOrder(symbol);
 
-        const orderCreated = await state.assets[symbol].currentOrder!.adjust(quantity, state.assets[symbol].price);
+    const orderCreated = await state.assets[symbol].currentOrder!.adjust(quantity, state.assets[symbol].price);
 
-        if (!orderCreated) {
-            log.err('Failed to create order', symbol, quantity);
-            state.assets[symbol].currentOrder?.cancel();
-            delete state.assets[symbol].currentOrder;
-        }
-
-        return orderCreated;
-    } catch (e) {
-        log.err('Failed to create order:', e);
-        if (state.assets[symbol].currentOrder) {
-            await state.assets[symbol].currentOrder?.cancel();
-            delete state.assets[symbol].currentOrder;
-        }
-
-        return false;
+    if (!orderCreated) {
+        log.err('Failed to create order', symbol, quantity);
+        state.assets[symbol].currentOrder?.cancel();
+        delete state.assets[symbol].currentOrder;
     }
+
+    return orderCreated;
 }

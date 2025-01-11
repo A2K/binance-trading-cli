@@ -29,7 +29,7 @@ class Wallet {
                             : chalk.redBright(`-${formatAssetQuantity(b.asset, -delta)}`)) + ' ' + chalk.whiteBright(b.asset);
                     });
                 if (updates.length) {
-                    log(`${updates.join(', ')}`);
+                    log(`👛 ${updates.join(', ')}`);
                 }
                 for (const balance of msg.balances!) {
                     // log(`ℹ️${balance.asset} ` +
@@ -52,13 +52,18 @@ class Wallet {
     }
 
     private async _update() {
-        const accountInfo = await binance.accountInfo();
-        for (const balance of accountInfo.balances) {
-            this.assets[balance.asset] = balance;
-            this.upToDate[balance.asset] = true;
+        try {
+            const accountInfo = await binance.accountInfo();
+            for (const balance of accountInfo.balances) {
+                this.assets[balance.asset] = balance;
+                this.upToDate[balance.asset] = true;
+            }
+            Object.keys(this.upToDate).filter(k => !this.upToDate[k]).forEach(k => delete this.assets[k]);
+            delete this.__updateInProgress;
+        } catch (e) {
+            log.err('Failed to update wallet:', e);
+            return;
         }
-        Object.keys(this.upToDate).filter(k => !this.upToDate[k]).forEach(k => delete this.assets[k]);
-        delete this.__updateInProgress;
     }
 
     async get(asset: string): Promise<AssetBalance> {
@@ -117,8 +122,6 @@ class State {
             delete this.currencies['BNSOL'];
         }
     }
-    symbolsScroll: number = 0;
-    symbolsHeight: number = 30;
 }
 
 const state = new State();

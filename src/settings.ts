@@ -34,6 +34,7 @@ export function saveConfigFile(configFile: ConfigFile, value: any) {
 export type StableCoin = 'USDC' | 'USDT';
 
 export type SettingsType = {
+    stopPriceOffsetMultiplier: number;
     buyThreshold: number,
     sellThreshold: number,
     maxDailyLoss: number,
@@ -46,6 +47,7 @@ export type SettingsType = {
 };
 
 export const Settings: SettingsType = getConfig('settings', {
+    stopPriceOffsetMultiplier: 4,
     buyThreshold: 35,
     sellThreshold: 25,
     maxDailyLoss: 0,

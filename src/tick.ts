@@ -1,7 +1,7 @@
 
 import chalk from 'chalk';
 import state from './state';
-import { printStats } from './ui';
+import { formatDeltaQuantity, printStats } from './ui';
 import { formatAssetPrice, getAssetBallance, lerp, marketRound, timestampStr } from './utils';
 import { log } from './ui';
 import { order } from './optimized-order';
@@ -68,22 +68,24 @@ export async function tick(priceInfo: Ticker): Promise<void> {
             const currentMarketPrice = parseFloat(currentMarketPriceStr);
             const orderMarketPriceStr = formatAssetPrice(symbol, state.assets[symbol].currentOrder!.price);
             const orderMarketPrice = parseFloat(orderMarketPriceStr);
-            if (Math.sign(state.assets[symbol].currentOrder!.quantity) !== Math.sign(quantity)) {
+            /*if (Math.sign(state.assets[symbol].currentOrder!.quantity) !== Math.sign(quantity)) {
                 log.warn(`CANCELING ORDER: ${symbol} at ${orderMarketPriceStr} -> ${orderMarketPriceStr}`);
                 await state.assets[symbol].currentOrder!.cancel();
                 state.assets[symbol].currentOrder = undefined;
-            } else if ((quantity > 0 && currentMarketPrice < orderMarketPrice) ||
+            } else*/
+            if ((quantity > 0 && currentMarketPrice < orderMarketPrice) ||
                 (quantity < 0 && currentMarketPrice > orderMarketPrice)) {
-                log.warn(`ADJUSTING ORDER: ${symbol} at ${orderMarketPriceStr} -> ${currentMarketPriceStr}`);
-                if (!(await state.assets[symbol].currentOrder!.adjust(quantity, currentPrice))) {
-                    if (state.assets[symbol].currentOrder) {
-                        await state.assets[symbol].currentOrder!.cancel();
-                        state.assets[symbol].currentOrder = undefined;
-                    }
-                }
+                log.notice(`📝 ${chalk.yellow(state.assets[symbol].currentOrder?.order?.orderId)} ${formatDeltaQuantity(symbol, quantity)} ${chalk.whiteBright(symbol)} at ${chalk.yellow(orderMarketPriceStr)} -> ${chalk.yellowBright(currentMarketPriceStr)}`);
+                await state.assets[symbol].currentOrder!.adjust(quantity, currentPrice);
+                // if (!(await state.assets[symbol].currentOrder!.adjust(quantity, currentPrice))) {
+                //     if (state.assets[symbol].currentOrder) {
+                //         await state.assets[symbol].currentOrder!.cancel();
+                //         state.assets[symbol].currentOrder = undefined;
+                //     }
+                // }
             }
         } catch (e) {
-            log.err('ADJUSTING ORDER FAILED: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ', e);
+            log.err('Failed to adjust order: ' + quantity + ' ' + symbol + ' at ' + currentPrice + ': ', e);
         }
 
         state.assets[symbol].orderCreationInProgress = false;

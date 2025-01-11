@@ -4,7 +4,7 @@ import state from './state';
 import Settings from './settings';
 import readline from 'readline';
 import candles, { Candle, LiveCandleData } from './candles';
-import { bgLerp, lerpColor, lerpChalk, clamp, getAssetBallance, progressBarText, verticalBar, trimTrailingZeroes, DelayedExecution, timestampStr, getAvgBuyPrice, formatAssetQuantity, getAssetBallanceFree, remap } from './utils';
+import { bgLerp, lerpColor, lerpChalk, clamp, getAssetBallance, progressBarText, verticalBar, trimTrailingZeroes, DelayedExecution, timestampStr, getAvgBuyPrice, formatAssetQuantity, getAssetBallanceFree, remap, formatAssetPrice } from './utils';
 import { readProfits, readTransactionLog } from './transactions';
 import { CandleChartInterval_LT } from 'binance-api-node';
 import { getStakedQuantity, getStakingEffectiveAPR, getStakingEffectiveAPRAverage } from './autostaking';
@@ -13,6 +13,23 @@ import { sma, ema, rsi, stochasticrsi } from 'trading-indicator';
 import Trade from './trade';
 import fs from 'fs';
 
+const ST = '(?:\\u0007|\\u001B\\u005C|\\u009C)';
+const ansiRegexPattern = [
+    `[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?${ST})`,
+    '(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))',
+].join('|');
+const ansiRegexInstance = new RegExp(ansiRegexPattern, 'g');
+
+function stripAnsi(string: string) {
+	if (typeof string !== 'string') {
+		throw new TypeError(`Expected a \`string\`, got \`${typeof string}\``);
+	}
+
+	// Even though the regex is global, we don't need to reset the `.lastIndex`
+	// because unlike `.exec()` and `.test()`, `.replace()` does it automatically
+	// and doing it manually has a performance penalty.
+	return string.replace(ansiRegexInstance, '');
+}
 const logFileStream = fs.createWriteStream(__dirname + '/config/log.txt', {flags : 'a', encoding: 'utf-8'});
 
 export var tradeLog: Trade[] = [];
@@ -31,7 +48,7 @@ export class LogMessage {
         const color = (() => {
             switch (this.level) {
                 case 'info': return chalk.white;
-                case 'notice': return chalk.blue;
+                case 'notice': return chalk.yellowBright;
                 case 'warn': return chalk.yellow;
                 case 'error': return chalk.red;
                 default: return chalk.white;
@@ -46,7 +63,7 @@ export class LogMessage {
                 default: return 'ℹ';
             }
         })();
-        return prefix + ' ' + timestampStr(this.time) + ' ' + color(this.message.substring(0, Math.min(this.message.length, state.candles.XBase - 23)));
+        return prefix + ' ' + timestampStr(this.time) + ' ' + color(this.message);
     }
 
     get length(): number {
@@ -55,6 +72,7 @@ export class LogMessage {
 }
 
 import CLITable from './ui-clitable';
+import ansiSlice from './ansi-substr';
 
 export var messageLog: LogMessage[] = (() => {
     try {
@@ -176,6 +194,7 @@ function colorizeChangedPart(symbol: string, prev: number, next: number, padding
             chalk.red(nextStr.substring(diffIndex + 1))) + ' '.repeat(Math.max(0, padding - nextStr.length));
 }
 export function createSymbolTable(): CLITable {
+
     const symbols: string[] = Object.keys(state.currencies).sort();
     const table = new CLITable(symbols.length, 9);
 
@@ -266,93 +285,33 @@ export function createSymbolTable(): CLITable {
     return table;
 }
 
-var symbolTable: CLITable|undefined=undefined;
+export var symbolsTable: CLITable = new CLITable(0, 0, 0);
+var symbolsTableNeedsInit: boolean = true;
 export async function printSymbol(symbol: string): Promise<void> {
 
     if (!(symbol in state.assets)) {
         return;
     }
-    if (symbolTable === undefined) {
-        symbolTable = createSymbolTable();
+    if (symbolsTableNeedsInit) {
+        symbolsTable = createSymbolTable();
+        symbolsTableNeedsInit = false;
     }
-/*
-    let deltaPrice: number = state.assets[symbol].deltaPrice || 0;
 
-    const symbolProfit: number = await readProfits(symbol, '1 day');
+    const symbolIndex = Object.keys(state.currencies).sort().indexOf(symbol);
+    const lineIndex = symbolIndex - symbolsTable.scrollPosition;
+    const isSelected = symbolIndex === state.selectedRow;
 
-    const targetBalance = state.currencies[symbol] || 0;
-    const staked = await getStakedQuantity(symbol) * (state.assets[symbol].price || 0);
-
-    const isSelected: boolean = Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow;
-    const total: number = Object.keys(state.currencies).reduce((acc, s) => acc + (state.currencies[s] || 0), 0);
-    const max: number = Object.keys(state.currencies).reduce((acc, s) => Math.max(acc, state.currencies[s] / total), 0);
-    const fraction: number = Math.pow(targetBalance / total / max, 1.0 / Math.E);
-    const stakedFraction: number = fraction / (await getAssetBallance(symbol)) / (state.assets[symbol].price || 0) * staked; //Math.pow(staked / total / max,  1.0 / Math.E);
-
-    let str: string = progressBarText({ current: fraction, max: 1.0 }, 10, targetBalance.toFixed(0),
-        isSelected ? [32, 180, 180] : [10, 120, 120],
-        isSelected ? [0, 64, 128] : [0, 32, 32],
-        isSelected ? [225, 225, 225] : [192, 192, 192],
-        isSelected ? [250, 250, 250] : [210, 210, 210]
-    );
-
-    const deltaUsd: number = state.deltas[symbol] || 0;
-    const PNL: number = (await readProfits(symbol, 'all time') || 0) + await getAssetBallance(symbol) * state.assets[symbol].price;
-
-    const effectiveAPR = await getStakingEffectiveAPR(symbol);
-    const loss = {
-        current: Math.max(0, state.assets[symbol].maxDailyLoss + (await readProfits(symbol))),
-        max: state.assets[symbol].maxDailyLoss
-    };
-
-    const maxSellThreshold = Math.max(...Object.keys(state.assets).map(s => state.assets[s].sellThreshold));
-    const sellThresholdPadding = maxSellThreshold.toFixed(0).length;
-    const maxBuyThreshold = Math.max(...Object.keys(state.assets).map(s => state.assets[s].buyThreshold));
-    const buyThresholdPadding = maxBuyThreshold.toFixed(0).length;
-    // const buyPrice = await getAvgBuyPrice(symbol);
-    // const buyRatio = clamp((buyPrice - state.assets[symbol].price) / (state.assets[symbol].price * 0.1), -1, 1);
-    state.assets[symbol].statusLine = `${state.assets[symbol].orderInProgress?'⌛':'📈'} ${symbol.padEnd(8)} ${makeVelocitySymbol((state.velocities[symbol] || 0))}` +
-
-        `${colorizeChangedPart(symbol, state.assets[symbol].price - deltaPrice, state.assets[symbol].price, 13)}` +
-        // `${(buyRatio > 0 ? lerpChalk([200, 200, 200], [255, 200, 200], Math.abs(buyRatio)) : lerpChalk([200, 200, 200], [200, 255, 200], Math.abs(buyRatio)))(formatAssetQuantity(symbol, buyPrice).slice(0, 10).padEnd(13))}` +
-
-        str +
-        ` ${lerpChalk([200, 200, 200], [100, 255, 100], remap(effectiveAPR, [0, 0.005]))((effectiveAPR * 100).toFixed(2).padStart(5))}` +
-
-        ` ${(deltaUsd < 0 ? (-deltaUsd > state.assets[symbol].sellThreshold ? chalk.greenBright : chalk.green) :
-            (deltaUsd > state.assets[symbol].buyThreshold ? chalk.redBright : chalk.red))(colorizeDeltaUsd(symbol, -deltaUsd))} ` +
-        await colorizeSymbolProfit(symbol, symbolProfit) + ' ' +
-        (state.assets[symbol].staking ? '💸' : '💰') + ' ' +
-
-        chalk.bgRgb(isSelected ? 100 : 50, isSelected ? 100 : 50, isSelected ? 100 : 50)(lerpChalk([255,0,0],[0,255,0],loss.max === 0 ? 0 : loss.current / loss.max)(verticalBar(loss)) + state.assets[symbol].maxDailyLoss.toFixed(0).padEnd(4)) +
-        (state.assets[symbol].enableSell ? chalk.bgRgb(isSelected ? 50 : 25, isSelected ? 100 : 50, isSelected ? 50 : 25) : chalk.bgRgb(isSelected ? 100 : 50, isSelected ? 100 : 50, isSelected ? 100 : 50))(
-            `${state.assets[symbol].enableSell ? '🟢' : '🟥'}` +
-            `${chalk.green(state.assets[symbol].sellThreshold.toFixed(0).padEnd(sellThresholdPadding))}`) +
-            (state.assets[symbol].enableBuy ? chalk.bgRgb(isSelected ? 50 : 25, isSelected ? 100 : 50, isSelected ? 50 : 25) : chalk.bgRgb(isSelected ? 100 : 50, isSelected ? 100 : 50, isSelected ? 100 : 50))(`${state.assets[symbol].enableBuy ? '🟢' : '🟥'}` +
-            `${chalk.red('-' + state.assets[symbol].buyThreshold.toFixed(0).padEnd(buyThresholdPadding))}`) +
-
-       lerpChalk([200, 0, 0], [0, 200, 0], PNL > 0 ? 1 : 0)(PNL.toFixed(2).padStart(9));
-*/
-    const keys: string[] = Object.keys(state.currencies).sort();
-    const lineIndex = keys.indexOf(symbol) - state.symbolsScroll;
-    const scrollBarChar = scrollBar({
-        position: state.symbolsScroll,
-        total: Object.keys(state.assets).length,
-        height: state.symbolsHeight
-    }).split('')[lineIndex];
-
-
-    if (lineIndex >= 0 && lineIndex < state.symbolsHeight) {
-        const str = await symbolTable.renderRow(Object.keys(state.currencies).sort().indexOf(symbol));
+    if (lineIndex >= 0 && lineIndex < symbolsTable.height) {
+        const str = await symbolsTable.renderRow(symbolIndex);
         readline.cursorTo(process.stdout, 0, lineIndex);
-        if (keys.indexOf(symbol) == state.selectedRow) {
+        if (symbolIndex == state.selectedRow) {
             process.stdout.write(chalk.bgBlackBright(str));
         } else {
             process.stdout.write(str);
         }
     }
 
-    if ((Settings.drawCandles && state.selectedRow >= 0) && Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow) {
+    if ((Settings.drawCandles && state.selectedRow >= 0) && isSelected) {
         await drawCandles(symbol, Settings.stableCoin);
     }
 }
@@ -366,10 +325,10 @@ export const printStats = async (symbol: string, deltaPrice?: number): Promise<v
 
     printSymbol(symbol);
 
-    if (Object.keys(state.currencies).length < state.symbolsHeight) {
-        for (var i = Object.keys(state.currencies).length; i < state.symbolsHeight; i++) {
+    if (Object.keys(state.currencies).length < symbolsTable!.height) {
+        for (var i = Object.keys(state.currencies).length; i < symbolsTable!.height; i++) {
             readline.cursorTo(process.stdout, 0, i);
-            process.stdout.write(' '.repeat(state.candles.XBase));
+            process.stdout.write(' '.repeat(symbolsTable!.width));
         }
     }
     const profits: number = await readProfits();
@@ -401,10 +360,8 @@ export const printStats = async (symbol: string, deltaPrice?: number): Promise<v
             `${chalk.red('↓')}${chalk.whiteBright('<')}${chalk.green('↑')}${chalk.whiteBright('>')}  ` +
             `${chalk.red('↓')}${chalk.whiteBright('-')}${chalk.green('↑')}${chalk.whiteBright('=')}   ` +
             `${chalk.red('↓')}${chalk.whiteBright('[')}${chalk.green('↑')}${chalk.whiteBright(']')} `) + ' '.repeat(10);
-    readline.cursorTo(process.stdout, 0, state.symbolsHeight);
+    readline.cursorTo(process.stdout, 0, symbolsTable!.height);
     process.stdout.write(chalk.bgRgb(64, 64, 64)(str));
-
-
 }
 
 var __drawCandlesCallCounter: number = 0;
@@ -429,7 +386,7 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
     }
     __drawCandlesLastCallTime = Date.now();
     const callId = ++__drawCandlesCallCounter;
-    const candlesX: number = state.candles.XBase;
+    const candlesX: number = symbolsTable!.width;
     const candlesWidth: number = (process.stdout.columns || 120) - candlesX;
     state.candles.height = Math.round(20 / 80 * candlesWidth);
 
@@ -753,7 +710,7 @@ export async function renderStopLimitWidget(symbol: string): Promise<string[]> {
 export async function drawCandlesStatusBar(symbol: string): Promise<void> {
     const isSelected: boolean = Object.keys(state.currencies).sort().indexOf(symbol) === state.selectedRow;
 
-    const candlesX: number = state.candles.XBase;
+    const candlesX: number = symbolsTable!.width;
     const candlesWidth: number = (process.stdout.columns || 120) - candlesX;
     state.candles.height = Math.round(20 / 80 * candlesWidth);
 
@@ -804,13 +761,14 @@ export async function drawCandlesStatusBar(symbol: string): Promise<void> {
         readline.cursorTo(process.stdout, candlesX, state.candles.height + 1);
         const stopLimitWidget: string[] = await renderStopLimitWidget(symbol);
         for (const [index, line] of stopLimitWidget.entries()) {
-            readline.cursorTo(process.stdout, candlesX, state.candles.height + 1 + index);
+            readline.cursorTo(process.stdout, candlesX, state.candles.height + 2 + index);
             process.stdout.write(line);
         }
     }
 }
 
 export function printTrades(): void {
+
 
     const maxLines = (Settings.drawCandles && state.selectedRow >= 0)
         ? (process.stdout.rows || 80) - state.candles.height - 3 - 2
@@ -823,9 +781,9 @@ export function printTrades(): void {
     for (var i = 0; i < lines.length; ++i) {
         const line = lines[i];
         readline.cursorTo(process.stdout,
-            state.candles.XBase,
+            symbolsTable!.width,
             (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i +2: i);
-        process.stdout.write(line.toString() + ' '.repeat((process.stdout.columns || 120) - state.candles.XBase - line.toPlainTextString().length - 2));
+        process.stdout.write(line.toString() + ' '.repeat((process.stdout.columns || 120) - symbolsTable!.width - line.toPlainTextString().length - 2));
     }
 
     scrollBar({ position: pos, total: tradeLog.length, height: maxLines }).split('').forEach((c, i) => {
@@ -841,7 +799,7 @@ export function printTrades(): void {
 function chars(str: string): string[] {
     // return (str.replace(/\x1b\[\??\d+m/, '').split('');
     const res = [];
-    for (const c of str.replace(/\x1b\[\??\d+m/, '')) {
+    for (const c of stripAnsi(str)) {
         res.push(c);
     }
     return res;
@@ -860,25 +818,24 @@ function strlen(str: string): number {
 function substr(str: string, start?: number, end?: number): string {
     return chars(str).slice(start, end).join('');
 }
-function strpad(str: string, len: number, char: string = ' ') {
-    return str + char.repeat(Math.max(10, len - strlen(str)));
-}
+// function strpad(str: string, len: number, char: string = ' ') {
+//     return str + char.repeat(Math.max(10, len - strlen(str)));
+// }
 export async function printLog() {
-
-    const maxLines = (process.stdout.rows || 80) - state.symbolsHeight - 1;
+    const maxLines = (process.stdout.rows || 80) - symbolsTable.height - 1;
     state.logScroll = Math.min(state.logScroll, Math.max(0, messageLog.length - maxLines));
 
     const pos = Math.min(Math.max(0, state.logScroll), Math.max(0, messageLog.length - maxLines))
     const lines = messageLog.slice(0).reverse().slice(pos, pos + maxLines);
 
     for (var i = 0; i < lines.length; ++i) {
-        const line: string = lines[i].toString();//.substring(0, state.candles.XBase - 1);
-        readline.cursorTo(process.stdout, 0, state.symbolsHeight + 1 + i);
-        process.stdout.write(line + ' '.repeat(Math.max(0, state.candles.XBase - lines[i].length)));
+        const line: string = ansiSlice(lines[i].toString(), 0, symbolsTable!.width - 1);
+        readline.cursorTo(process.stdout, 0, symbolsTable.height + 1 + i);
+        process.stdout.write(line + ' '.repeat(Math.max(0, symbolsTable!.width - lines[i].length - 1)));
     }
 
     scrollBar({ position: pos, total: messageLog.length, height: maxLines }).split('').forEach((c, i) => {
-        readline.cursorTo(process.stdout, state.candles.XBase - 1, state.symbolsHeight + 1 + i);
+        readline.cursorTo(process.stdout, symbolsTable!.width - 1, symbolsTable!.height + 1 + i);
         process.stdout.write((state.logScrollHover ? chalk.whiteBright : chalk.white)(c));
     });
 }
@@ -896,7 +853,7 @@ export async function clearTransactions(): Promise<void> {
         }
     } else {
         for (var i = 0; i < (process.stdout.rows || 120); i++) {
-            readline.cursorTo(process.stdout, state.candles.XBase, i);
+            readline.cursorTo(process.stdout, symbolsTable!.width, i);
             readline.clearLine(process.stdout, 1);
         }
     }
@@ -917,7 +874,7 @@ const DOWN_W: string[] = ['╵', '│', '╿', '┃'];
 const UP_B: string[] = [' ', ' ', '╻', '┃'];
 const DOWN_B: string[] = [' ', ' ', '╹', '┃'];
  */
-function scrollBar(value: { position: number, total: number, height: number }) {
+export function scrollBar(value: { position: number, total: number, height: number }) {
 
     if (value.total < value.height) {
         return '┃'.repeat(value.height);
@@ -958,53 +915,35 @@ function scrollBar(value: { position: number, total: number, height: number }) {
         }
         return '│';
     }).join('');
-    /*
-    for (var i = 0; i < value.height / 2; i++) {
+}
 
-        const start = double[i * 2];
-        const end = double[i * 2 + 1];
-        switch (`${start}${end}`) {
-            case '┃│': double[i * 2] = '┏'; double[i * 2 + 1] = '┓'; break;
-            case '│┃': double[i * 2] = '┗'; double[i * 2 + 1] = '┛'; break;
-            case '││': double[i * 2] = '┠'; double[i * 2 + 1] = '┨'; break;
-            case '┃┃': double[i * 2] = '┠'; double[i * 2 + 1] = '┨'; break;
-        }
-        const start = i / value.height;
-        const end = (i + 1) / value.height;
-
-        if (end > (value.position + value.height) / value.total &&
-            ((start + end) / 2) >= (value.position + value.height) / value.total) {
-            double[i] = '╿';
-        }
-
-        if (start < value.position / value.total &&
-            (start + end) / 2 >= value.position / value.total) {
-            double[i] = '╽';
-        }
+export function splitSymbol(symbol: string): string[] {
+    if (/.*USD[TC]$/.test(symbol)) {
+        return [symbol.slice(0, -4), symbol.slice(-4)];
     }
+    return [symbol.slice(0, -3), symbol.slice(-3)];
+}
 
-    return '┃'.repeat(value.height).split('').map((_, i) => {
-        const start = i / value.height;
-        const end = (i + 1) / value.height;
+export function parseAsset(symbol: string): string {
+    if (/.*USD[TC]$/.test(symbol)) {
+        return symbol.slice(0, -4);
+    }
+    return symbol.slice(0, -3);
+}
 
-        if (end > (value.position + value.height) / value.total &&
-        // ((start + end) / 2) >= (value.position + value.height) / value.total) {
-            ((start + end) / 2) <= (value.position + value.height) / value.total) {
-            // end >= (value.position + value.height) / value.total) {
-            return '╿';
-        }
+export function formatDeltaPrice(symbol: string, value: number, colorize: boolean = true): string {
+    const str = (value >= 0 ? '+' : '') + formatAssetPrice(symbol, value);
+    if (!colorize) {
+        return str;
+    }
+    return value >= 0 ? chalk.green(str) : chalk.red(str);
+}
 
-        if (start < value.position / value.total &&
-            (start + end) / 2 >= value.position / value.total) {
-            return '╽';
-        }
-
-        if (start >= clamp(value.position / value.total) &&
-            end <= clamp((value.position + value.height) / value.total)) {
-            return '┃';
-        }
-
-        return '│';
-    }).join('');
-    */
+export function formatDeltaQuantity(symbol: string, value: number | string, colorize: boolean = true): string {
+    const numValue = parseFloat(`${value}`);
+    const str = (numValue >= 0 ? '+' : '') + (typeof value === 'number' ? formatAssetQuantity(symbol, value) : value);
+    if (!colorize) {
+        return str;
+    }
+    return numValue >= 0 ? chalk.green(str) : chalk.red(str);
 }

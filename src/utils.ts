@@ -86,8 +86,8 @@ export function formatAssetPrice(asset: string, price: number): string {
 }
 
 export function marketCeil(asset: string, quantity: number): number {
-  const { stepSize, minNotional } = state.assets[asset];
-  return Math.max(minNotional, Math.ceil(quantity / stepSize) * stepSize);
+  const { tickSize, minNotional } = state.assets[asset];
+  return Math.max(minNotional, Math.ceil(quantity / tickSize) * tickSize);
 }
 
 export function marketFloor(asset: string, quantity: number): number {
@@ -150,8 +150,13 @@ export function circleIndicator(limit = { current: 0, max: 1 }, colorA = [255, 0
   return lerpChalk(colorA, colorB, fraction)(symbols[Math.round((symbols.length - 1) * fraction)]);
 }
 
-export const getAvgBuyPrice = async (symbol: string): Promise<number> => {
-  const transactions = (await readTransactionLog(symbol, undefined)).reverse();
+export const getAvgBuyPrice = async (asset: string): Promise<number> => {
+  const cacheKey = `avgBuyPrice-${asset}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+      return cached;
+  }
+  const transactions = (await readTransactionLog(asset, 100000)).reverse();
   var currentAvg = 0;
   var currentSum = 0;
   for (const transaction of transactions) {
@@ -163,7 +168,7 @@ export const getAvgBuyPrice = async (symbol: string): Promise<number> => {
           currentSum -= transaction.quantity;
       }
   }
-  return currentAvg;
+  return cache.put(cacheKey, currentAvg);
 }
 
 export function remap(a: number, from: number[], to: number[] = [0, 1]): number {
