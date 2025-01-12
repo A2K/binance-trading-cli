@@ -844,7 +844,7 @@ export async function printLog() {
     for (var i = 0; i < lines.length; ++i) {
         const line: string = ansiSlice(lines[i].toString(), 0, symbolsTable!.width - 1);
         readline.cursorTo(process.stdout, 0, symbolsTable.height + 1 + i);
-        process.stdout.write(line + ' '.repeat(Math.max(0, symbolsTable!.width - lines[i].length - 1)));
+        process.stdout.write(line + ' '.repeat(Math.max(0, symbolsTable!.width - lines[i].length - 3)));
     }
 
     scrollBar({ position: pos, total: messageLog.length, height: maxLines }).split('').forEach((c, i) => {
@@ -858,6 +858,7 @@ export async function printTransactions(symbol?: string): Promise<void> {
     state.tradeScroll = 0;
     printTrades();
 }
+
 export async function clearTransactions(): Promise<void> {
     if (Settings.drawCandles && state.selectedRow >= 0) {
         for (var i = Object.keys(state.currencies).length + 1; i < (process.stdout.rows || 120); i++) {

@@ -67,22 +67,18 @@ export function formatAssetQuantity(asset: string, quantity: number): string {
       return quantity.toFixed(2);
     }
   }
-  const precision = 10; /*(asset in state.assets)
-    ? clamp(Math.ceil(Math.log10(1.0 / state.assets[asset].stepSize)), 0, 8)
-    : 8 /* default */;
-  const step1 = trimTrailingZeroes((quantity || 0).toFixed(precision + 1).slice(0, -2));
-  if (step1.endsWith('9999')) {
-    const lastDigit = step1.replace(/^.*\..*([^9])9+$/, "$1");
-    const firstPart = step1.replace(/^(.*\..*)[^9]9+$/, "$1");
-    return firstPart + parseInt(lastDigit) + 1;
+  if (!(asset in state.assets)) {
+    return quantity.toPrecision(6);
   }
-  return step1.replace(/\.0$/, '');
+  const { stepSize } = state.assets[asset];
+  const rounded = Math.round(quantity / stepSize) * stepSize;
+  return trimTrailingZeroes(rounded.toFixed(Math.max(0, Math.ceil(Math.log10(1.0 / stepSize)) - 1)));
 }
 
 export function formatAssetPrice(asset: string, price: number): string {
   const priceStep = state.assets[asset].tickSize * 0.1;
   const rounded = Math.round(price / priceStep) * priceStep;
-  return rounded.toFixed(Math.max(0, Math.ceil(Math.log10(1.0 / priceStep)) - 1));
+  return trimTrailingZeroes(rounded.toFixed(Math.max(0, Math.ceil(Math.log10(1.0 / priceStep)) - 1)));
 }
 
 export function marketCeilPrice(asset: string, quantity: number): number {
@@ -91,13 +87,13 @@ export function marketCeilPrice(asset: string, quantity: number): number {
 }
 
 export function marketCeilQuantity(asset: string, quantity: number): number {
-  const { stepSize, minQty } = state.assets[asset];
-  return Math.max(minQty, Math.ceil(quantity / stepSize) * stepSize);
+  const { stepSize } = state.assets[asset];
+  return Math.ceil(quantity / stepSize) * stepSize;
 }
 
 export function marketFloor(asset: string, quantity: number): number {
-  const { stepSize, minNotional } = state.assets[asset];
-  return Math.max(minNotional, Math.floor(quantity / stepSize) * stepSize);
+  const { stepSize } = state.assets[asset];
+  return Math.floor(quantity / stepSize) * stepSize;
 }
 
 export function marketRound(asset: string, quantity: number): number {

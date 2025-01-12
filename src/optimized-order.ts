@@ -23,65 +23,54 @@ export class OptimizedOrder {
 
     constructor(public symbol: string) { }
 
+    get orderOptions(): any {
+        const stopPrice = formatAssetPrice(this.symbol, this.stopPrice);
+        const quantity = formatAssetQuantity(this.symbol, Math.abs(this.quantity) * this.price / parseFloat(stopPrice));
+        return {
+            symbol: `${this.symbol}${Settings.stableCoin}`,
+            side: this.quantity > 0 ? BUY : SELL,
+            type: 'STOP_LOSS',
+            quantity,
+            stopPrice
+        };
+    }
+
+    get replaceOrderOptions(): any {
+        return Object.assign(this.orderOptions, {
+            cancelOrderId: this.order?.orderId,
+            cancelReplaceMode: 'STOP_ON_FAILURE'
+        });
+    }
+
     async create(quantity: number, price: number): Promise<boolean> {
         this.quantity = quantity;
         this.price = price;
-        try {
-            const maxPriceDelta = state.assets[this.symbol].tickSize * Settings.stopPriceOffsetMultiplier;
-            const tradePrice = marketCeilPrice(this.symbol, this.price + Math.sign(quantity) * maxPriceDelta);
-            const tradeQuantity = marketCeilQuantity(this.symbol, Math.abs(quantity) * this.price / tradePrice);
-
-            this.order = await binance.order({
-                symbol: `${this.symbol}${Settings.stableCoin}`,
-                side: this.quantity > 0 ? BUY : SELL,
-                quantity: formatAssetQuantity(this.symbol, tradeQuantity),
-                type: 'STOP_LOSS',
-                stopPrice: `${formatAssetPrice(this.symbol, tradePrice)}`
-            });
-
-            return true;
-        } catch (e) {
-            log.err('Failed to create order:', e);
-            if (this.order) {
-                try {
-                    await this.cancel();
-                } catch (e) { }
-                delete this.order;
-            }
-            return false;
-        }
+        this.order = await binance.order(this.orderOptions);
+        return true;
     }
 
     get maxPriceDelta(): number {
         return state.assets[this.symbol].tickSize * Settings.stopPriceOffsetMultiplier;
     }
 
-    async adjust(quantity: number, minPrice: number): Promise<boolean> {
+    get stopPrice(): number {
+        return this.price + Math.sign(this.quantity) * this.maxPriceDelta;
+    }
+
+    async adjust(quantity: number, price: number): Promise<boolean> {
         if (!this.order) {
-            return this.create(quantity, minPrice);
+            return this.create(quantity, price);
         }
 
         this.quantity = quantity;
-        this.price = minPrice;
+        this.price = price;
         try {
-            const maxPriceDelta = state.assets[this.symbol].tickSize * Settings.stopPriceOffsetMultiplier;
-            const tradePrice = marketCeilPrice(this.symbol, this.price + Math.sign(quantity) * maxPriceDelta);
-            const tradeQuantity = marketCeilQuantity(this.symbol, Math.abs(quantity) * this.price / tradePrice);
-            this.order = await binance.cancelReplace({
-                symbol: this.order.symbol,
-                cancelOrderId: this.order.orderId,
-                side: this.quantity > 0 ? BUY : SELL,
-                quantity: formatAssetQuantity(this.symbol, tradeQuantity),
-                type: 'STOP_LOSS',
-                stopPrice: `${formatAssetPrice(this.symbol, tradePrice)}`,
-                cancelReplaceMode: 'STOP_ON_FAILURE'
-            });
+            this.order = await binance.cancelReplace(this.replaceOrderOptions);
+            return true;
         } catch (e) {
             log.warn('Failed to adjust order:', e);
             return false;
         }
-
-        return true;
     }
 
     async cancel() {

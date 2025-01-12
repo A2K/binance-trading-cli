@@ -89,6 +89,7 @@ export class ThrottledBinanceAPI {
 
     async init() {
         const exchangeInfo = await this.api.exchangeInfo();
+        log(JSON.stringify(exchangeInfo.rateLimits));
 
         this.weightLimiter = new CompositeRateLimiter(
             exchangeInfo.rateLimits

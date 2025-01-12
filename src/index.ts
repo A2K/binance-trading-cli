@@ -115,42 +115,40 @@ binance.init().then(async () => {
                         clearProfitsCache(asset);
                         printSymbol(asset);
                         break;
-                    case 'CANCELED':
-                    case 'PENDING_CANCEL':
-                        break;
                     case 'REJECTED':
                     case 'EXPIRED':
                         log(`❌ ORDER ${chalk.yellow(chalk.yellow(msg.orderId))} ${chalk.red(msg.orderStatus)}`);
+                    case 'CANCELED':
+                    case 'PENDING_CANCEL':
                         if (await state.assets[asset].currentOrder?.complete(msg)) {
                             delete state.assets[asset].currentOrder;
                             clearProfitsCache(asset);
                             printSymbol(asset);
+                            state.wallet.markOutOfDate(asset);
                         }
                         break;
                     case 'NEW':
                     case 'PARTIALLY_FILLED':
                         if (msg.orderStatus === 'PARTIALLY_FILLED') {
-                            log('📥 ORDER', chalk.yellow(msg.orderId), Math.round(parseFloat(msg.totalTradeQuantity) / parseFloat(msg.quantity) * 100) + '%');
+                            log('📥 ORDER', chalk.yellow(msg.orderId), 'FILLED', Math.round(parseFloat(msg.totalTradeQuantity) / parseFloat(msg.quantity) * 100) + '%');
                         }
-                        if (state.assets[asset].currentOrder) {
-                            state.assets[asset].currentOrder!.order = {
-                                orderId: msg.orderId,
-                                orderListId: msg.orderListId,
-                                price: msg.price,
-                                stopPrice: msg.stopPrice,
-                                side: msg.side,
-                                symbol: msg.symbol,
-                                timeInForce: msg.timeInForce,
-                                clientOrderId: msg.newClientOrderId,
-                                cummulativeQuoteQty: msg.totalQuoteTradeQuantity,
-                                executedQty: msg.quantity,
-                                isWorking: msg.isOrderWorking,
-                                origQty: msg.quantity,
-                                status: msg.orderStatus,
-                                time: msg.orderTime,
-                                type: (msg.orderType as string) as OrderType_LT,
-                                updateTime: msg.eventTime
-                            };
+                        const order = state.assets[asset].currentOrder?.order;
+                        if (order && order.orderId === msg.orderId) {
+                            order.orderListId = msg.orderListId || order.orderListId;
+                            order.price = msg.price || order.price;
+                            order.stopPrice = msg.stopPrice || order.stopPrice;
+                            order.side = msg.side || order.side;
+                            order.symbol = msg.symbol || order.symbol;
+                            order.timeInForce = msg.timeInForce || order.timeInForce;
+                            order.clientOrderId = msg.newClientOrderId || order.clientOrderId;
+                            order.cummulativeQuoteQty = msg.totalQuoteTradeQuantity || order.cummulativeQuoteQty;
+                            order.executedQty = msg.quantity || order.executedQty;
+                            order.isWorking = msg.isOrderWorking || order.isWorking;
+                            order.origQty = msg.quantity || order.origQty;
+                            order.status = msg.orderStatus || order.status;
+                            order.time = msg.orderTime || order.time;
+                            order.type = (msg.orderType as string) as OrderType_LT || order.type;
+                            order.updateTime = msg.eventTime || order.updateTime;
                         } else {
                             log('🆕 ORDER', chalk.yellow(msg.orderId),
                                 formatDeltaQuantity(parseAsset(msg.symbol), parseFloat(msg.quantity) * (msg.side === 'BUY' ? 1 : -1)),
@@ -178,6 +176,9 @@ binance.init().then(async () => {
                             newOrder.quantity = parseFloat(msg.quantity);
                             newOrder.price = parseFloat(parseOrderPrice(msg));
 
+                            if (state.assets[asset].currentOrder) {
+                                state.assets[asset].currentOrder?.cancel();
+                            }
                             state.assets[asset].currentOrder = newOrder;
                         }
                 }
