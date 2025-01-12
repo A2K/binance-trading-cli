@@ -76,6 +76,9 @@ export function formatAssetQuantity(asset: string, quantity: number): string {
 }
 
 export function formatAssetPrice(asset: string, price: number): string {
+  if (!(asset in state.assets)) {
+    return price.toPrecision(6);
+  }
   const priceStep = state.assets[asset].tickSize * 0.1;
   const rounded = Math.round(price / priceStep) * priceStep;
   return trimTrailingZeroes(rounded.toFixed(Math.max(0, Math.ceil(Math.log10(1.0 / priceStep)) - 1)));
