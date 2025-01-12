@@ -141,6 +141,10 @@ export async function tick(priceInfo: Ticker): Promise<void> {
                             await order(symbol, quantity);
                         } catch (e) {
                             log.err('TRADE FAILED: ' + quantity + ' of ' + symbol + ' at ' + currentPrice + ': ', e);
+                            if (state.assets[symbol].currentOrder) {
+                                state.assets[symbol].currentOrder?.cancel()
+                                delete state.assets[symbol].currentOrder;
+                            }
                         }
                         state.assets[symbol].orderCreationInProgress = false;
                     })();
