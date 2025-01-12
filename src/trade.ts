@@ -2,7 +2,7 @@
 import { MyTrade } from 'binance-api-node';
 import chalk from 'chalk';
 import { Row } from 'postgres';
-import { formatAssetQuantity, timestampStr, trimTrailingZeroes } from './utils';
+import { formatAssetPrice, formatAssetQuantity, timestampStr, trimTrailingZeroes } from './utils';
 import state from './state';
 
 export class Trade implements MyTrade {
@@ -56,7 +56,7 @@ export class Trade implements MyTrade {
     toPlainTextString(): string {
         return `${(this.isBuyer ? 'B' : 'S')} ${timestampStr(this.date)} ` +
             `${((this.isBuyer ? '-' : '+') + Math.abs(this.quoteQuantity).toFixed(2))} ${('USDT')} ` +
-            `${((this.isBuyer ? '+' : '-') + formatAssetQuantity(this.symbol, Math.abs(this.quantity)))} ${(this.symbol)} at ${(formatAssetQuantity(this.symbol, parseFloat(this.price)))} ` +
+            `${((this.isBuyer ? '+' : '-') + formatAssetQuantity(this.symbol, Math.abs(this.quantity)))} ${(this.symbol)} at ${(formatAssetPrice(this.symbol, parseFloat(this.price)))} ` +
             (`fee ${(this.commission)} ${(this.commissionAsset)}`)
     }
 
@@ -64,7 +64,7 @@ export class Trade implements MyTrade {
 
         return `${(this.isBuyer ? '🪙' : '💵')} ${timestampStr(this.date)} ` +
             `${(this.isBuyer ? chalk.redBright : chalk.greenBright)((this.isBuyer ? '-' : '+') + Math.abs(this.quoteQuantity).toFixed(2))} ${chalk.whiteBright('USDT')} ` +
-            `${(this.isBuyer ? chalk.green : chalk.red)((this.isBuyer ? '+' : '-') + formatAssetQuantity(this.symbol, Math.abs(this.quantity)))} ${chalk.bold(this.symbol)} at ${chalk.yellowBright(formatAssetQuantity(this.symbol, parseFloat(this.price)))} ` +
+            `${(this.isBuyer ? chalk.green : chalk.red)((this.isBuyer ? '+' : '-') + formatAssetQuantity(this.symbol, Math.abs(this.quantity)))} ${chalk.bold(this.symbol)} at ${chalk.yellowBright(formatAssetPrice(this.symbol, parseFloat(this.price)))} ` +
             chalk.rgb(125, 125, 125)(`fee ${chalk.rgb(150, 125, 50)(this.commission)} ${chalk.rgb(150, 150, 150)(this.commissionAsset)}`);
     }
 
