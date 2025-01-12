@@ -105,7 +105,7 @@ binance.init().then(async () => {
                             commission, "commissionAsset", "isBuyer", "isMaker", "isBestMatch")
                         VALUES (${new Date(msg.orderTime)}, ${msg.tradeId},
                             ${asset}, ${currency},
-                            ${msg.orderId}, ${msg.orderListId}, ${parseFloat(msg.totalQuoteTradeQuantity) / parseFloat(msg.quantity)}, ${msg.quantity},
+                            ${msg.orderId}, ${msg.orderListId}, ${parseFloat(parseOrderPrice(msg))}, ${msg.quantity},
                             ${msg.totalQuoteTradeQuantity}, ${msg.commission}, ${msg.commissionAsset},
                             ${msg.side === 'BUY'}, ${msg.isBuyerMaker}, FALSE)
                         ON CONFLICT DO NOTHING`;
