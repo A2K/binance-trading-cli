@@ -7,7 +7,7 @@ import cache from 'memory-cache';
 
 import 'source-map-support/register';
 import { log } from './ui';
-import { formatAssetQuantity, marketCeil, marketFloor, timestampStr } from './utils';
+import { formatAssetQuantity, marketCeilPrice, marketFloor, timestampStr } from './utils';
 import state from './state';
 
 import binance, { ThrottledBinanceAPI } from './binance-ext/throttled-binance-api';
@@ -86,7 +86,7 @@ async function redeemBNSOL(amount: number): Promise<number> {
     var freeBNSOL = parseFloat(balance.free);
 
     if (freeBNSOL < amount) {
-        amount = freeBNSOL + await redeemFlexibleProduct('BNSOL', marketCeil('SOL', amount - freeBNSOL));
+        amount = freeBNSOL + await redeemFlexibleProduct('BNSOL', marketCeilPrice('SOL', amount - freeBNSOL));
     }
 
     const order = await binance.order({
@@ -147,7 +147,7 @@ async function redeemWBETH(amount: number): Promise<number> {
     var freeBNSOL = parseFloat(balance.free);
 
     if (freeBNSOL < amount) {
-        amount = freeBNSOL + await redeemFlexibleProduct('WBETH', marketCeil('ETH', amount - freeBNSOL));
+        amount = freeBNSOL + await redeemFlexibleProduct('WBETH', marketCeilPrice('ETH', amount - freeBNSOL));
     }
 
     const order = await binance.order({

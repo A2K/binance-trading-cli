@@ -426,6 +426,19 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
     const maxValue: number = max;
     rows.forEach((row: string, i: number) => {
         readline.cursorTo(process.stdout, candlesX, i);
+        if (state.assets[symbol].currentOrder) {
+            if (state.assets[symbol].currentOrder.order?.stopPrice) {
+                const rowValue = (rows.length - i) / rows.length * (maxValue - minValue) + minValue;
+                if (state.assets[symbol].currentOrder.order.side === 'SELL' && parseFloat(state.assets[symbol].currentOrder!.order!.stopPrice!) >= rowValue) {
+                    row = chalk.bgRgb(64, 0, 0)(row);
+                } else if (state.assets[symbol].currentOrder.order.side === 'BUY' && parseFloat(state.assets[symbol].currentOrder!.order!.stopPrice!) <= rowValue) {
+                    row = chalk.bgRgb(0, 64, 0)(row);
+                }
+                process.stdout.write(row);
+                readline.clearLine(process.stdout, 1);
+                return;
+            }
+        }
         process.stdout.write(chalk.bgRgb(25, 25, 25)(row));
         readline.clearLine(process.stdout, 1);
     });

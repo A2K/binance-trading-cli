@@ -54,7 +54,7 @@ export async function tick(priceInfo: Ticker): Promise<void> {
 
     printStats(symbol, deltaPrice);
 
-    if (!binance.canStakeOrRedeem) {
+    if (!binance.canStakeOrRedeem || (!state.enableBuy && !state.enableSell)) {
         return;
     }
 
@@ -75,7 +75,7 @@ export async function tick(priceInfo: Ticker): Promise<void> {
             } else*/
             if ((quantity > 0 && currentMarketPrice < orderMarketPrice) ||
                 (quantity < 0 && currentMarketPrice > orderMarketPrice)) {
-                log.notice(`📝 ${chalk.yellow(state.assets[symbol].currentOrder?.order?.orderId)} ${formatDeltaQuantity(symbol, quantity)} ${chalk.whiteBright(symbol)} at ${chalk.yellow(orderMarketPriceStr)} -> ${chalk.yellowBright(currentMarketPriceStr)}`);
+                log.notice(`📝 ${chalk.yellow(state.assets[symbol].currentOrder?.order?.orderId)} ${formatDeltaQuantity(symbol, quantity)} ${chalk.whiteBright(symbol)} at ${chalk.yellow(orderMarketPriceStr)} -> ${chalk.yellowBright(currentMarketPriceStr)} `);
                 await state.assets[symbol].currentOrder!.adjust(quantity, currentPrice);
                 // if (!(await state.assets[symbol].currentOrder!.adjust(quantity, currentPrice))) {
                 //     if (state.assets[symbol].currentOrder) {

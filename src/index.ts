@@ -1,7 +1,7 @@
 import cache from 'memory-cache';
 import dotenv from 'dotenv';
 import state from './state';
-import { formatDeltaQuantity, log, parseAsset, printSymbol, printTrades, printTransactions } from './ui';
+import { formatDeltaQuantity, log, parseAsset, printSymbol, printTrades, printTransactions, splitSymbol } from './ui';
 import { pullNewTransactions, readTransactionLog, refreshMaterializedViews, sql, updateTransactionsForAllSymbols } from './transactions';
 import Symbol from './symbol';
 import tick from './tick';
@@ -92,7 +92,7 @@ binance.init().then(async () => {
                 const currency = msg.symbol.replace(/.*(USD[TC])$/, "$1");
                 switch (msg.orderStatus) {
                     case 'FILLED':
-                        log(`✅ ${chalk.yellow(msg.orderId)} ${formatDeltaQuantity(msg.symbol, msg.quantity)} ${chalk.whiteBright(msg.symbol)} at ${chalk.yellow(parseOrderPrice(msg))}`);
+                        log(`✅ ORDER ${chalk.yellowBright(msg.orderId)} ${formatDeltaQuantity(splitSymbol(msg.symbol)[0], msg.quantity)} ${chalk.whiteBright(msg.symbol)} at ${chalk.yellow(formatAssetPrice(splitSymbol(msg.symbol)[0], parseFloat(parseOrderPrice(msg))))}`);
                         if (state.assets[asset].currentOrder) {
                             if (await state.assets[asset].currentOrder?.complete(msg)) {
                                 delete state.assets[asset].currentOrder;
@@ -115,11 +115,12 @@ binance.init().then(async () => {
                         clearProfitsCache(asset);
                         printSymbol(asset);
                         break;
-                    case 'REJECTED':
-                    case 'PENDING_CANCEL':
                     case 'CANCELED':
+                    case 'PENDING_CANCEL':
+                        break;
+                    case 'REJECTED':
                     case 'EXPIRED':
-                        log(`❌ ${chalk.yellow(chalk.yellow(msg.orderId))} ${chalk.red(msg.orderStatus)}`);
+                        log(`❌ ORDER ${chalk.yellow(chalk.yellow(msg.orderId))} ${chalk.red(msg.orderStatus)}`);
                         if (await state.assets[asset].currentOrder?.complete(msg)) {
                             delete state.assets[asset].currentOrder;
                             clearProfitsCache(asset);
@@ -127,12 +128,9 @@ binance.init().then(async () => {
                         }
                         break;
                     case 'NEW':
-                        log('🆕', chalk.yellow(msg.orderId),
-                            formatDeltaQuantity(parseAsset(msg.symbol), parseFloat(msg.quantity) * (msg.side === 'BUY' ? 1 : -1)),
-                            chalk.whiteBright(msg.symbol), 'at', chalk.yellow(parseOrderPrice(msg)));
                     case 'PARTIALLY_FILLED':
                         if (msg.orderStatus === 'PARTIALLY_FILLED') {
-                            log('📥', chalk.yellow(msg.orderId), Math.round(parseFloat(msg.totalTradeQuantity) / parseFloat(msg.quantity) * 100) + '%');
+                            log('📥 ORDER', chalk.yellow(msg.orderId), Math.round(parseFloat(msg.totalTradeQuantity) / parseFloat(msg.quantity) * 100) + '%');
                         }
                         if (state.assets[asset].currentOrder) {
                             state.assets[asset].currentOrder!.order = {
@@ -154,6 +152,9 @@ binance.init().then(async () => {
                                 updateTime: msg.eventTime
                             };
                         } else {
+                            log('🆕 ORDER', chalk.yellow(msg.orderId),
+                                formatDeltaQuantity(parseAsset(msg.symbol), parseFloat(msg.quantity) * (msg.side === 'BUY' ? 1 : -1)),
+                                chalk.whiteBright(msg.symbol), 'at', chalk.yellow(parseOrderPrice(msg)));
                             const newOrder = new OptimizedOrder(asset);
                             newOrder.order = {
                                 orderId: msg.orderId,
@@ -173,6 +174,9 @@ binance.init().then(async () => {
                                 type: (msg.orderType as string) as OrderType_LT,
                                 updateTime: msg.eventTime
                             };
+
+                            newOrder.quantity = parseFloat(msg.quantity);
+                            newOrder.price = parseFloat(parseOrderPrice(msg));
 
                             state.assets[asset].currentOrder = newOrder;
                         }

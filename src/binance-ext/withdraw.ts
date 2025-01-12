@@ -14,9 +14,3 @@ export async function withdraw(address: string, amount: number, coin = 'USDT', n
     console.log(result)
 }
 
-
-async function main() {
-
-    withdraw('0x17C9DDdB264474d7d627867b9f13382e824087A2', 10, 'USDT', 'BSC');
-}
-main();

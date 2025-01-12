@@ -85,9 +85,14 @@ export function formatAssetPrice(asset: string, price: number): string {
   return rounded.toFixed(Math.max(0, Math.ceil(Math.log10(1.0 / priceStep)) - 1));
 }
 
-export function marketCeil(asset: string, quantity: number): number {
+export function marketCeilPrice(asset: string, quantity: number): number {
   const { tickSize, minNotional } = state.assets[asset];
   return Math.max(minNotional, Math.ceil(quantity / tickSize) * tickSize);
+}
+
+export function marketCeilQuantity(asset: string, quantity: number): number {
+  const { stepSize, minQty } = state.assets[asset];
+  return Math.max(minQty, Math.ceil(quantity / stepSize) * stepSize);
 }
 
 export function marketFloor(asset: string, quantity: number): number {

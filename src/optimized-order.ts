@@ -1,7 +1,7 @@
 import { ExecutionReport, ExecutionType, Order, OrderType, TimeInForce } from 'binance-api-node';
 import dotenv from 'dotenv';
 import state from './state';
-import { formatAssetPrice, formatAssetQuantity, marketCeil, timestampStr } from './utils';
+import { formatAssetPrice, formatAssetQuantity, marketCeilPrice, marketCeilQuantity, timestampStr } from './utils';
 import { log } from './ui';
 import Settings from './settings';
 import { clearStakingCache, redeemFlexibleProduct, subscribeFlexibleProductAllFree } from './autostaking';
@@ -28,14 +28,15 @@ export class OptimizedOrder {
         this.price = price;
         try {
             const maxPriceDelta = state.assets[this.symbol].tickSize * Settings.stopPriceOffsetMultiplier;
-            log('P', price, 'D', maxPriceDelta, 'NP', this.price + Math.sign(quantity) * this.maxPriceDelta);
+            const tradePrice = marketCeilPrice(this.symbol, this.price + Math.sign(quantity) * maxPriceDelta);
+            const tradeQuantity = marketCeilQuantity(this.symbol, Math.abs(quantity) * this.price / tradePrice);
 
             this.order = await binance.order({
                 symbol: `${this.symbol}${Settings.stableCoin}`,
                 side: this.quantity > 0 ? BUY : SELL,
-                quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
+                quantity: formatAssetQuantity(this.symbol, tradeQuantity),
                 type: 'STOP_LOSS',
-                stopPrice: `${formatAssetPrice(this.symbol, this.price + Math.sign(quantity) * this.maxPriceDelta)}`
+                stopPrice: `${formatAssetPrice(this.symbol, tradePrice)}`
             });
 
             return true;
@@ -63,13 +64,16 @@ export class OptimizedOrder {
         this.quantity = quantity;
         this.price = minPrice;
         try {
+            const maxPriceDelta = state.assets[this.symbol].tickSize * Settings.stopPriceOffsetMultiplier;
+            const tradePrice = marketCeilPrice(this.symbol, this.price + Math.sign(quantity) * maxPriceDelta);
+            const tradeQuantity = marketCeilQuantity(this.symbol, Math.abs(quantity) * this.price / tradePrice);
             this.order = await binance.cancelReplace({
                 symbol: this.order.symbol,
                 cancelOrderId: this.order.orderId,
                 side: this.quantity > 0 ? BUY : SELL,
-                quantity: formatAssetQuantity(this.symbol, Math.abs(this.quantity)),
+                quantity: formatAssetQuantity(this.symbol, tradeQuantity),
                 type: 'STOP_LOSS',
-                stopPrice: `${formatAssetPrice(this.symbol, this.price + Math.sign(this.quantity) * this.maxPriceDelta)}`,
+                stopPrice: `${formatAssetPrice(this.symbol, tradePrice)}`,
                 cancelReplaceMode: 'STOP_ON_FAILURE'
             });
         } catch (e) {
@@ -118,7 +122,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     if (quantity < 0) {
         if ((await state.wallet.total(symbol)) < Math.abs(quantity)) {
             state.assets[symbol].stakingInProgress = true;
-            const amountToUnstake = marketCeil(symbol, Math.abs(quantity) - (await state.wallet.total(symbol)));
+            const amountToUnstake = marketCeilPrice(symbol, Math.abs(quantity) - (await state.wallet.total(symbol)));
             try {
                 await redeemFlexibleProduct(symbol, amountToUnstake);
             } catch (e) {
@@ -128,10 +132,10 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
     } else {
         if (await state.wallet.free(Settings.stableCoin) < quantity * state.assets[symbol].price) {
             state.assets[symbol].stakingInProgress = true;
-            const amountToUnstake = marketCeil(symbol, quantity * state.assets[symbol].price
+            const amountToUnstake = marketCeilPrice(symbol, quantity * state.assets[symbol].price
                 - (await state.wallet.free(Settings.stableCoin)) / state.assets[symbol].price);
             try {
-                await redeemFlexibleProduct(Settings.stableCoin, marketCeil(symbol, amountToUnstake));
+                await redeemFlexibleProduct(Settings.stableCoin, marketCeilPrice(symbol, amountToUnstake));
             } catch (e) {
                 log.err(`Failed to redeem ${chalk.yellow(amountToUnstake)} ${chalk.whiteBright(Settings.stableCoin)}:`, e);
             }

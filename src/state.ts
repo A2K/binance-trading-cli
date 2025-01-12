@@ -21,8 +21,11 @@ class Wallet {
         await this.update();
         binance.ws.user(async (msg) => {
             if (msg.eventType === 'outboundAccountPosition') {
-                const updates = msg.balances.map((b: AssetBalance): [AssetBalance, number] => [b, parseFloat(b.free) + parseFloat(b.locked)
+                const updates = msg.balances
+                    .filter(b => b.asset in this.assets)
+                    .map((b: AssetBalance): [AssetBalance, number] => [b, parseFloat(b.free) + parseFloat(b.locked)
                     - (parseFloat(this.assets[b.asset].free) || 0) - (parseFloat(this.assets[b.asset].locked) || 0)])
+                    .sort(([a, deltaA], [b, deltaB]) => deltaB - deltaA)
                     .filter(([b, delta]) => Math.abs(delta) > 0.000001).map(([b, delta]) => {
                         return (delta > 0
                             ? chalk.greenBright(`+${formatAssetQuantity(b.asset, delta)}`)
@@ -32,9 +35,6 @@ class Wallet {
                     log(`👛 ${updates.join(', ')}`);
                 }
                 for (const balance of msg.balances!) {
-                    // log(`ℹ️${balance.asset} ` +
-                    //     `🪙${formatAssetQuantity(balance.asset, parseFloat(balance.free))}` +
-                    //     `🔒${formatAssetQuantity(balance.asset, parseFloat(balance.locked))}`);
                     this.assets[balance.asset] = balance;
                     this.upToDate[balance.asset] = true;
                 }

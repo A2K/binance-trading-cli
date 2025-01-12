@@ -1,7 +1,7 @@
 import { OrderType } from 'binance-api-node';
 import dotenv from 'dotenv';
 import state from './state';
-import { formatAssetQuantity, marketCeil, timestampStr } from './utils';
+import { formatAssetQuantity, marketCeilPrice, timestampStr } from './utils';
 import { log } from './ui';
 import Settings from './settings';
 import { clearProfitsCache, clearStakingCache, redeemFlexibleProduct, subscribeFlexibleProductAllFree } from './autostaking';
@@ -14,7 +14,7 @@ import chalk from 'chalk';
 export async function order(symbol: string, quantity: number): Promise<boolean> {
     if (quantity < 0) {
         if (await state.wallet.total(symbol) < Math.abs(quantity)) {
-            const amountToUnstake = marketCeil(symbol, Math.abs(quantity) - (await state.wallet.free(symbol)));
+            const amountToUnstake = marketCeilPrice(symbol, Math.abs(quantity) - (await state.wallet.free(symbol)));
             state.assets[symbol].stakingInProgress = true;
             try {
                 await redeemFlexibleProduct(symbol, amountToUnstake);
@@ -26,7 +26,7 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
         if (await state.wallet.total(Settings.stableCoin) < quantity) {
             state.assets[symbol].stakingInProgress = true;
             try {
-                await redeemFlexibleProduct(Settings.stableCoin, marketCeil(symbol, quantity - await state.wallet.free(Settings.stableCoin)));
+                await redeemFlexibleProduct(Settings.stableCoin, marketCeilPrice(symbol, quantity - await state.wallet.free(Settings.stableCoin)));
             } catch (e) {
                 log.err(`Failed to redeem ${chalk.yellow(quantity - await state.wallet.free(Settings.stableCoin))} ${chalk.whiteBright(Settings.stableCoin)}:`, e);
             }
