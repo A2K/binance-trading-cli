@@ -86,15 +86,21 @@ async function redeemBNSOL(amount: number): Promise<number> {
     var freeBNSOL = parseFloat(balance.free);
 
     if (freeBNSOL < amount) {
-        amount = freeBNSOL + await redeemFlexibleProduct('BNSOL', marketCeilPrice('SOL', amount - freeBNSOL));
+        await redeemFlexibleProduct('BNSOL', marketCeilPrice('SOL', amount - freeBNSOL));
     }
 
-    const order = await binance.order({
-        type: OrderType.MARKET,
-        symbol: 'BNSOLSOL',
-        side: 'SELL',
-        quantity: marketFloor('BNSOL', amount).toFixed(6)
-    });
+    var order;
+    try {
+        order = await binance.order({
+            type: OrderType.MARKET,
+            symbol: 'BNSOLSOL',
+            side: 'SELL',
+            quantity: formatAssetQuantity('BNSOL', amount)
+        });
+    } catch (e) {
+        log.err(`Failed to sell ${amount} BNSOL:`, e);
+        return 0;
+    }
 
     if (order.status !== 'FILLED') {
         log.err(`Failed to sell ${amount} BNSOL`);
@@ -114,6 +120,7 @@ async function stakeWBETH(amount: number): Promise<number> {
         side: 'BUY',
         quantity: formatAssetQuantity('ETH', amount)
     }));
+
     try {
         order = await binance.order({
             type: OrderType.MARKET,
@@ -266,9 +273,7 @@ async function getStakedBNSOL(): Promise<number> {
     if (!stakedInfo) {
         return 0;
     }
-    const staked = stakedInfo.rows.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0);
-    const nonstaked = await state.wallet.total('BNSOL');
-    return staked + nonstaked;
+    return stakedInfo.rows.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0);
 }
 
 export async function getStakedAssets(): Promise<string[]> {
