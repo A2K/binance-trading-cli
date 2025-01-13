@@ -799,10 +799,15 @@ export function printTrades(): void {
         process.stdout.write(line.toString() + ' '.repeat(Math.max(0, (process.stdout.columns || 120) - symbolsTable!.width - line.toPlainTextString().length - 2)));
     }
 
+    for (var i = lines.length; i < maxLines; i++) {
+        readline.cursorTo(process.stdout, symbolsTable!.width, (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i + 2 : i + 1);
+        readline.clearLine(process.stdout, 1);
+    }
+
     scrollBar({ position: pos, total: tradeLog.length, height: maxLines }).split('').forEach((c, i) => {
         readline.cursorTo(process.stdout,
             process.stdout.columns! - 1,
-            (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i +2: 1 + i);
+            (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i + 3: i);
         process.stdout.write((state.tradesScrollHover ? chalk.whiteBright : chalk.white)(c));
     });
 

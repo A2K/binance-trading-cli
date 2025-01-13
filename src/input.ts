@@ -7,6 +7,8 @@ import { closeLiveIndicator } from './indicators';
 import terminal from 'terminal-kit';
 
 import child_process from 'child_process';
+import { stat } from 'fs';
+import { getAssetBallance } from './utils';
 const term = terminal.terminal;
 
 term.grabInput({ mouse: 'motion' });
@@ -99,6 +101,15 @@ term.on('key', function (name: string, matches: string[], data: any) {
                 state.selectedRow = Object.keys(state.currencies).length - 1;
                 symbolsTable!.scrollPosition = Math.max(0, Object.keys(state.currencies).length - symbolsTable!.height);
                 Object.keys(state.currencies).map(printSymbol);
+                break;
+            case 'BACKSPACE':
+                if (state.selectedRow >= 0) {
+                    const asset = Object.keys(state.currencies).sort()[state.selectedRow];
+                    getAssetBallance(asset).then((balance) => {
+                        state.currencies[asset] = balance;
+                        printSymbol(asset);
+                    });
+                }
                 break;
             case 'F1':
                 if (state.selectedRow >= 0) {

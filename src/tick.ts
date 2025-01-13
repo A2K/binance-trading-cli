@@ -2,13 +2,12 @@
 import chalk from 'chalk';
 import state from './state';
 import { formatDeltaQuantity, printStats } from './ui';
-import { formatAssetPrice, getAssetBallance, lerp, marketRound, timestampStr } from './utils';
+import { formatAssetPrice, getAssetBallance, lerp, marketRound } from './utils';
 import { log } from './ui';
 import { order } from './optimized-order';
 import { readProfits } from './transactions';
 import { Ticker } from 'binance-api-node';
 import binance from './binance-ext/throttled-binance-api';
-import { getCandles } from './candles';
 import { getStakedQuantity } from './autostaking';
 import Settings from './settings';
 

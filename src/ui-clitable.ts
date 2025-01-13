@@ -67,6 +67,9 @@ export default class CLITable {
     }
 
     public async renderRow(index: number): Promise<string> {
+        if (index < 0 || index >= this.rows.length) {
+            return ' '.repeat(this.width);
+        }
         const cells = await Promise.all(this.rows[index].map(async (cell: CLICell) => await cell.render()));
         return `${cells.join(' '.repeat(this.spacing))} ${this.scrollBar[index - this.scrollPosition] || ''}`;
     }
