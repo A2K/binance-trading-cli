@@ -29,7 +29,7 @@ async function main() {
     console.log('compiling...');
     try {
       await new Promise((resolve, reject) =>
-        exec('tsc', (err) => err ? reject(err) : resolve()));
+        exec('npx tsc', (err) => err ? reject(err) : resolve()));
       compiled = true;
     } catch (err) {
       process.exit(1);

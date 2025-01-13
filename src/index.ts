@@ -2,20 +2,20 @@ import cache from 'memory-cache';
 import dotenv from 'dotenv';
 import state from './state';
 import { formatDeltaQuantity, log, parseAsset, printSymbol, printTrades, printTransactions, splitSymbol } from './ui';
-import { pullNewTransactions, readTransactionLog, refreshMaterializedViews, sql, updateTransactionsForAllSymbols } from './transactions';
+import { refreshMaterializedViews, sql, updateTransactionsForAllSymbols } from './transactions';
 import Symbol from './symbol';
 import tick from './tick';
 import readline from 'readline';
 import 'source-map-support/register';
 import Settings from './settings';
 
-import { clearProfitsCache, clearStakingCache, getStakingAccount } from './autostaking';
+import { clearProfitsCache, getStakingAccount } from './autostaking';
 
 dotenv.config();
 import binance from './binance-ext/throttled-binance-api';
-import { bgLerp, circleIndicator, formatAssetPrice, formatAssetQuantity, lerp, lerpChalk, lerpColor, limitIndicator, progressBar, verticalBar } from './utils';
+import { bgLerp, circleIndicator, formatAssetPrice, lerpChalk, lerpColor, progressBar, verticalBar } from './utils';
 import chalk from 'chalk';
-import { ExchangeInfo, SymbolFilter, SymbolMinNotionalFilter, SymbolLotSizeFilter, Order, OrderType_LT, UserDataStreamEvent, ExecutionReport } from 'binance-api-node';
+import { ExchangeInfo, SymbolFilter, OrderType_LT, ExecutionReport } from 'binance-api-node';
 import { OptimizedOrder } from './optimized-order';
 import registerInputHandlers from './input';
 
@@ -90,6 +90,9 @@ binance.init().then(async () => {
             case 'executionReport':
                 const asset = msg.symbol.replace(/USD[CT]$/, '');
                 const currency = msg.symbol.replace(/.*(USD[TC])$/, "$1");
+                if (!(asset in state.assets)) {
+                    break;
+                }
                 switch (msg.orderStatus) {
                     case 'FILLED':
                         log(`✅ ORDER ${chalk.yellowBright(msg.orderId)} ${formatDeltaQuantity(splitSymbol(msg.symbol)[0], msg.quantity)} ${chalk.whiteBright(msg.symbol)} at ${chalk.yellow(formatAssetPrice(splitSymbol(msg.symbol)[0], parseFloat(parseOrderPrice(msg))))}`);

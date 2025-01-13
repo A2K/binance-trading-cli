@@ -9,6 +9,8 @@ import { readProfits } from './transactions';
 import { Ticker } from 'binance-api-node';
 import binance from './binance-ext/throttled-binance-api';
 import { getCandles } from './candles';
+import { getStakedQuantity } from './autostaking';
+import Settings from './settings';
 
 var __calculatingIndicators = false;
 export async function tick(priceInfo: Ticker): Promise<void> {
@@ -121,6 +123,11 @@ export async function tick(priceInfo: Ticker): Promise<void> {
 
                 if (Math.abs(quantity * state.assets[symbol].price) > state.assets[symbol].minNotional
                     && Math.abs(quantity) > state.assets[symbol].minQty) {
+
+                    if (quantity > 0 && deltaUsd > await state.wallet.total(Settings.stableCoin) + await getStakedQuantity(Settings.stableCoin)) {
+                        // not enough for buying
+                        return;
+                    }
 
                     if (process.argv.includes('--dry-run')) {
                         log(

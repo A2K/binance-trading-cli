@@ -58,7 +58,7 @@ async function stakeBNSOL(amount: number): Promise<number> {
             type: OrderType.MARKET,
             symbol: 'BNSOLSOL',
             side: 'BUY',
-            quantity: marketFloor('SOL', state.assets['SOL'].price / state.assets['BNSOL'].price * amount).toFixed(6)
+            quantity: formatAssetQuantity('BNSOL', amount / state.assets['SOL'].price * state.assets['BNSOL'].price)
         });
     } catch (e) {
         log.err(`failed to trade ${amount} SOL->BNSOL:`, e);
@@ -176,7 +176,7 @@ async function redeemWBETH(amount: number): Promise<number> {
 
 export async function subscribeFlexibleProduct(asset: string, amount: number): Promise<number> {
     if (asset === 'SOL') {
-        return stakeBNSOL(amount);
+        return stakeBNSOL(amount * (1.0 - 0.00075));
     }
     if (asset === 'ETH') {
         return stakeWBETH(amount);

@@ -575,7 +575,7 @@ export async function drawCandles(symbol: string, currency: string = 'USDT'): Pr
     const buyPrice = await getAvgBuyPrice(symbol);
     const buyRatio = clamp((buyPrice - state.assets[symbol].price) / (state.assets[symbol].price * 0.1), -1, 1);
 
-        str[0] += ` ${(buyRatio > 0 ? lerpChalk([200, 200, 200], [255, 200, 200], Math.abs(buyRatio)) : lerpChalk([200, 200, 200], [200, 255, 200], Math.abs(buyRatio)))(formatAssetQuantity(symbol, buyPrice).slice(0, 10).padEnd(13))}`;
+        str[0] += ` ${(buyRatio > 0 ? lerpChalk([200, 200, 200], [255, 200, 200], Math.abs(buyRatio)) : lerpChalk([200, 200, 200], [200, 255, 200], Math.abs(buyRatio)))(formatAssetPrice(symbol, buyPrice).slice(0, 10).padEnd(13))}`;
         str[0] += (state.assets[symbol].price > buyPrice ? '+' : '-') + (Math.abs(state.assets[symbol].price - buyPrice) / buyPrice * 100).toFixed(2) + '%';
 
 
@@ -796,7 +796,7 @@ export function printTrades(): void {
         readline.cursorTo(process.stdout,
             symbolsTable!.width,
             (Settings.drawCandles && state.selectedRow >= 0) ? state.candles.height + 2 + i +2: i);
-        process.stdout.write(line.toString() + ' '.repeat((process.stdout.columns || 120) - symbolsTable!.width - line.toPlainTextString().length - 2));
+        process.stdout.write(line.toString() + ' '.repeat(Math.max(0, (process.stdout.columns || 120) - symbolsTable!.width - line.toPlainTextString().length - 2)));
     }
 
     scrollBar({ position: pos, total: tradeLog.length, height: maxLines }).split('').forEach((c, i) => {

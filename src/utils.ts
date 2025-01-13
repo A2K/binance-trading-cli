@@ -160,19 +160,20 @@ export const getAvgBuyPrice = async (asset: string): Promise<number> => {
   if (cached) {
       return cached;
   }
+
   const transactions = (await readTransactionLog(asset, 100000)).reverse();
-  var currentAvg = 0;
-  var currentSum = 0;
+  var avgPrice = 0;
+  var quantity = 0;
   for (const transaction of transactions) {
       if (transaction.isBuyer) {
-          const ratio = clamp(Math.abs(transaction.quantity) / (Math.abs(currentSum) + Math.abs(transaction.quantity)));
-          currentAvg = currentAvg * (1.0 - ratio) + parseFloat(transaction.price) * ratio;
-          currentSum += transaction.quantity;
+          const ratio = transaction.quantity / (quantity + transaction.quantity);
+          avgPrice = lerp(avgPrice, parseFloat(transaction.price), ratio);
+          quantity += transaction.quantity;
       } else {
-          currentSum -= transaction.quantity;
+          quantity = Math.max(0, quantity - transaction.quantity);
       }
   }
-  return cache.put(cacheKey, currentAvg);
+  return cache.put(cacheKey, avgPrice);
 }
 
 export function remap(a: number, from: number[], to: number[] = [0, 1]): number {

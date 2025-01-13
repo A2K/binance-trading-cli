@@ -13,6 +13,8 @@ services:
       - ./.env:/app/.env
       - database:/home/postgres/pgdata/data
       - ./config:/app/config
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     ports:
       - ${TIMESCALEDB_PORT}:${TIMESCALEDB_PORT}
     expose:
