@@ -8,6 +8,7 @@ import tick from './tick';
 import readline from 'readline';
 import 'source-map-support/register';
 import Settings from './settings';
+import { CronJob } from 'cron';
 
 import { clearProfitsCache, getStakingAccount } from './autostaking';
 
@@ -18,6 +19,11 @@ import chalk from 'chalk';
 import { ExchangeInfo, SymbolFilter, OrderType_LT, ExecutionReport } from 'binance-api-node';
 import { OptimizedOrder } from './optimized-order';
 import registerInputHandlers from './input';
+
+const resetProfitsOnMidnight = new CronJob('0 0 * * *',
+    async (): Promise<void> => { await Promise.all(Object.keys(state.currencies).map(clearProfitsCache)); },
+    null, true, 'Etc/UTC'
+);
 
 async function updateStepSize(symbol: string): Promise<void> {
     const info1: ExchangeInfo = await binance.exchangeInfo({ symbol: `${symbol}${Settings.stableCoin}` });
@@ -95,7 +101,7 @@ binance.init().then(async () => {
                 }
                 switch (msg.orderStatus) {
                     case 'FILLED':
-                        log(`✅ ORDER ${chalk.yellowBright(msg.orderId)} ${formatDeltaQuantity(splitSymbol(msg.symbol)[0], msg.quantity)} ${chalk.whiteBright(msg.symbol)} at ${chalk.yellow(formatAssetPrice(splitSymbol(msg.symbol)[0], parseFloat(parseOrderPrice(msg))))}`);
+                        log(`✅ ORDER ${chalk.yellowBright(msg.orderId)} ${formatDeltaQuantity(splitSymbol(msg.symbol)[0], (msg.side === 'BUY' ? 1 : -1) * parseFloat(msg.quantity))} ${chalk.whiteBright(msg.symbol)} at ${chalk.yellow(formatAssetPrice(splitSymbol(msg.symbol)[0], parseFloat(parseOrderPrice(msg))))}`);
                         if (state.assets[asset].currentOrder) {
                             if (await state.assets[asset].currentOrder?.complete(msg)) {
                                 delete state.assets[asset].currentOrder;

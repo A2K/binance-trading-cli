@@ -4,7 +4,7 @@ import state from './state';
 import { formatAssetPrice, formatAssetQuantity, marketCeilPrice, marketCeilQuantity, timestampStr } from './utils';
 import { log } from './ui';
 import Settings from './settings';
-import { clearStakingCache, redeemFlexibleProduct, subscribeFlexibleProductAllFree } from './autostaking';
+import { clearStakingCache, getStakedQuantity, redeemFlexibleProduct, subscribeFlexibleProductAllFree } from './autostaking';
 
 dotenv.config();
 import binance from './binance-ext/throttled-binance-api';
@@ -112,6 +112,11 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
         if ((await state.wallet.total(symbol)) < Math.abs(quantity)) {
             state.assets[symbol].stakingInProgress = true;
             const amountToUnstake = marketCeilPrice(symbol, Math.abs(quantity) - (await state.wallet.total(symbol)));
+            if (amountToUnstake > await getStakedQuantity(symbol)) {
+                state.assets[symbol].stakingInProgress = false;
+                log.err(`Insufficient ${symbol} to sell:`, amountToUnstake, '>', await getStakedQuantity(symbol));
+                return false;
+            }
             try {
                 await redeemFlexibleProduct(symbol, amountToUnstake);
             } catch (e) {
@@ -123,6 +128,11 @@ export async function order(symbol: string, quantity: number): Promise<boolean> 
             state.assets[symbol].stakingInProgress = true;
             const amountToUnstake = marketCeilPrice(symbol, quantity * state.assets[symbol].price
                 - (await state.wallet.free(Settings.stableCoin)) / state.assets[symbol].price);
+            if (amountToUnstake > await getStakedQuantity(Settings.stableCoin)) {
+                state.assets[symbol].stakingInProgress = false;
+                log.err(`Insufficient ${chalk.whiteBright(Settings.stableCoin)} to buy:`, amountToUnstake, '>', await getStakedQuantity(Settings.stableCoin));
+                return false;
+            }
             try {
                 await redeemFlexibleProduct(Settings.stableCoin, marketCeilPrice(symbol, amountToUnstake));
             } catch (e) {

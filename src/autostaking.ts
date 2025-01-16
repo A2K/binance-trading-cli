@@ -50,29 +50,43 @@ type FlexibleSubscriptionPurchase = {
     success: boolean
 };
 
+function BNSOLtoSOL(amount: number): number {
+    return amount / state.assets['BNSOL'].price * state.assets['SOL'].price;
+}
+
+function SOLtoBNSOL(amount: number): number {
+    return amount / state.assets['SOL'].price * state.assets['BNSOL'].price;
+}
+
 async function stakeBNSOL(amount: number): Promise<number> {
     log(`Converting ${amount} SOL to BNSOL`);
-    var order: Order | undefined;
-    try {
-        order = await binance.order({
-            type: OrderType.MARKET,
-            symbol: 'BNSOLSOL',
-            side: 'BUY',
-            quantity: formatAssetQuantity('BNSOL', amount / state.assets['SOL'].price * state.assets['BNSOL'].price)
-        });
-    } catch (e) {
-        log.err(`failed to trade ${amount} SOL->BNSOL:`, e);
-        return 0;
+
+    var freeBNSOL = await state.wallet.free('BNSOL');
+
+    if (freeBNSOL < amount) {
+        const sellAmount = amount - freeBNSOL;
+        var order: Order | undefined;
+        try {
+            order = await binance.order({
+                type: OrderType.MARKET,
+                symbol: 'BNSOLSOL',
+                side: 'BUY',
+                quantity: formatAssetQuantity('BNSOL', sellAmount)
+            });
+        } catch (e) {
+            log.err(`failed to trade ${amount} SOL->BNSOL:`, e);
+            return 0;
+        }
+
+        if (order.status !== 'FILLED') {
+            log.err(`failed to trade ${amount} SOL->BNSOL: ${order.status}`);
+            return 0;
+        }
     }
 
-    if (order.status !== 'FILLED') {
-        log.err(`failed to trade ${amount} SOL->BNSOL: ${order.status}`);
-        return 0;
-    }
+    freeBNSOL = await state.wallet.free('BNSOL');
 
-    const executedQty = parseFloat(order.executedQty);
-
-    return await subscribeFlexibleProduct('BNSOL', executedQty);
+    return await subscribeFlexibleProduct('BNSOL', Math.min(amount, freeBNSOL));
 }
 
 async function redeemBNSOL(amount: number): Promise<number> {
@@ -176,7 +190,7 @@ async function redeemWBETH(amount: number): Promise<number> {
 
 export async function subscribeFlexibleProduct(asset: string, amount: number): Promise<number> {
     if (asset === 'SOL') {
-        return stakeBNSOL(amount * (1.0 - 0.00075));
+        return stakeBNSOL(SOLtoBNSOL(amount));
     }
     if (asset === 'ETH') {
         return stakeWBETH(amount);
@@ -269,11 +283,12 @@ export async function getStakingAccount(asset?: string, size: number = 100): Pro
 }
 
 async function getStakedBNSOL(): Promise<number> {
+    const nonStakedBNSOL = await state.wallet.total('BNSOL');
     const stakedInfo = await getStakingAccount('BNSOL');
     if (!stakedInfo) {
-        return 0;
+        return nonStakedBNSOL;
     }
-    return stakedInfo.rows.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0);
+    return nonStakedBNSOL + stakedInfo.rows.reduce((acc, row) => acc + parseFloat(row.totalAmount), 0);
 }
 
 export async function getStakedAssets(): Promise<string[]> {
